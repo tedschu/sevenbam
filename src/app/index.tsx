@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BrowseFilterBar, defaultFilters, type BrowseFilters } from '@/components/browse-filters';
 import { ProfileSetupBanner } from '@/components/profile-setup-banner';
-import { GradientButton, SolidButton } from '@/components/button';
+import { GradientButton, QuietButton, SolidButton } from '@/components/button';
 import { LeagueCard } from '@/components/league-card';
 import { MatchCard } from '@/components/match-card';
 import { MatchSheet } from '@/components/match-sheet';
@@ -14,6 +14,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { addMatchToCalendar, loadCalendarSent, recordCalendarSent } from '@/lib/calendar';
 import {
   coordinatesOf,
   DefaultDistance,
@@ -126,6 +127,16 @@ function hasSeatControl(match: Match, userId: string) {
 }
 
 /**
+ * Whether this member already has a stake in the match — hosting it or holding
+ * a seat — which is what makes "add to calendar" a sensible offer here. My
+ * Matches can show the button unconditionally because every row there already
+ * qualifies; Browse mixes those in with matches nobody has joined yet.
+ */
+function isMember(match: Match, userId: string) {
+  return match.host_id === userId || isSeated(match, userId);
+}
+
+/**
  * Only genuinely actionable states get a control. "Hosting" and "Full" used to
  * sit here styled like buttons while doing nothing; the card's edge bar and
  * standing label carry that now.
@@ -205,6 +216,7 @@ export default function BrowseMatchesScreen() {
    * no way to change it is just a dead end.
    */
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
+  const [calendarSent, setCalendarSent] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -224,12 +236,22 @@ export default function BrowseMatchesScreen() {
       // Swallowed on purpose: a directory that fails to load should not take the
       // list of matches down with it.
       setLeagues(await fetchPublicLeagues().catch(() => []));
+      setCalendarSent(await loadCalendarSent(user.id));
       setLoadedAt(Date.now());
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load matches.');
     }
   }, []);
+
+  const sendToCalendar = useCallback(
+    async (match: Match) => {
+      await addMatchToCalendar(match);
+      if (!userId) return;
+      setCalendarSent(await recordCalendarSent(userId, match.id, calendarSent));
+    },
+    [calendarSent, userId]
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -409,6 +431,30 @@ export default function BrowseMatchesScreen() {
                 />
               );
 
+              // My Matches' "add to calendar" button, offered here too once this
+              // member actually has a seat — hosting or freshly joined — rather
+              // than on every joinable card, where there is nothing yet worth
+              // putting in a calendar.
+              const sentToCalendar = calendarSent.has(row.match.id);
+              const calendar = isMember(row.match, userId ?? '') ? (
+                <QuietButton
+                  icon={sentToCalendar ? 'calendarCheck' : 'calendarPlus'}
+                  label={
+                    sentToCalendar ? 'Already sent to calendar — send again' : 'Add to calendar'
+                  }
+                  onPress={() => sendToCalendar(row.match)}
+                  tone={sentToCalendar ? 'done' : 'default'}
+                />
+              ) : null;
+              const showSeat = hasSeatControl(row.match, userId ?? '');
+              const footer =
+                calendar || showSeat ? (
+                  <>
+                    {calendar}
+                    {showSeat ? seat : null}
+                  </>
+                ) : undefined;
+
               return (
                 <MatchCard
                   match={row.match}
@@ -418,10 +464,10 @@ export default function BrowseMatchesScreen() {
                   // Passed for every card; the sheet shows the control only to the
                   // host, and only while the match is still to be played.
                   onEdit={() => setEditingMatchId(row.match.id)}
-                  action={seat}
+                  action={footer}
                   // Undefined rather than an element that renders nothing, so the
                   // sheet knows whether it has a footer to draw at all.
-                  detailAction={hasSeatControl(row.match, userId ?? '') ? seat : undefined}
+                  detailAction={footer}
                 />
               );
             }}
