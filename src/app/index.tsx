@@ -436,14 +436,15 @@ export default function BrowseMatchesScreen() {
               // than on every joinable card, where there is nothing yet worth
               // putting in a calendar.
               const sentToCalendar = calendarSent.has(row.match.id);
-              const calendar = isMember(row.match, userId ?? '') ? (
+              const canDiarise = isMember(row.match, userId ?? '');
+              const calendar = canDiarise ? (
                 <QuietButton
                   icon={sentToCalendar ? 'calendarCheck' : 'calendarPlus'}
                   label={
                     sentToCalendar ? 'Already sent to calendar — send again' : 'Add to calendar'
                   }
                   onPress={() => sendToCalendar(row.match)}
-                  tone={sentToCalendar ? 'done' : 'default'}
+                  tone={sentToCalendar ? 'done' : 'accent'}
                 />
               ) : null;
               const showSeat = hasSeatControl(row.match, userId ?? '');
@@ -451,6 +452,23 @@ export default function BrowseMatchesScreen() {
                 calendar || showSeat ? (
                   <>
                     {calendar}
+                    {showSeat ? seat : null}
+                  </>
+                ) : undefined;
+
+              /**
+               * Inside the sheet the calendar hangs off this member's own roster
+               * row instead of the footer, so it sits where joining just put their
+               * name. A host who never took a seat has no such row — createMatch
+               * seats them by trigger, but `fetchMyMatches` still allows for the
+               * case — so for them it stays in the footer rather than vanishing.
+               */
+              const onRoster = isSeated(row.match, userId ?? '');
+              const detailCalendar = canDiarise && !onRoster ? calendar : null;
+              const detailFooter =
+                detailCalendar || showSeat ? (
+                  <>
+                    {detailCalendar}
                     {showSeat ? seat : null}
                   </>
                 ) : undefined;
@@ -467,7 +485,11 @@ export default function BrowseMatchesScreen() {
                   action={footer}
                   // Undefined rather than an element that renders nothing, so the
                   // sheet knows whether it has a footer to draw at all.
-                  detailAction={footer}
+                  detailAction={detailFooter}
+                  calendarSent={sentToCalendar}
+                  onAddToCalendar={
+                    canDiarise && onRoster ? () => sendToCalendar(row.match) : undefined
+                  }
                 />
               );
             }}

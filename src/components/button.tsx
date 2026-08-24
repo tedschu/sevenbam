@@ -217,7 +217,12 @@ export function QuietButton({
   label: string;
   onPress: () => void;
   disabled?: boolean;
-  tone?: 'default' | 'done' | 'primary' | 'danger';
+  /**
+   * `accent` keeps the quiet shape but sets the glyph in ink rather than grey, for
+   * a control that is genuinely on offer rather than incidental. `primary` fills
+   * the whole button and is a louder thing again — it competes with a Join.
+   */
+  tone?: 'default' | 'done' | 'primary' | 'danger' | 'accent';
 }) {
   const theme = useTheme();
 
@@ -234,7 +239,9 @@ export function QuietButton({
         ? theme.accentWarmInk
         : tone === 'danger'
           ? theme.danger
-          : theme.textSecondary;
+          : tone === 'accent'
+            ? theme.accentInk
+            : theme.textSecondary;
 
   return (
     <Pressable

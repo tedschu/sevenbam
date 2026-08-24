@@ -131,7 +131,7 @@ function MatchActions({
           icon={sentToCalendar ? 'calendarCheck' : 'calendarPlus'}
           label={sentToCalendar ? 'Already sent to calendar — send again' : 'Add to calendar'}
           onPress={onAddToCalendar}
-          tone={sentToCalendar ? 'done' : 'default'}
+          tone={sentToCalendar ? 'done' : 'accent'}
         />
       )}
 
@@ -445,6 +445,13 @@ export default function MatchesScreen() {
                 // Tapping the card opens its details, and the host can go
                 // straight from there into the same sheet this row's pencil opens.
                 onEdit={() => setEditingMatchId(item.id)}
+                // The same offer the row makes, repeated on this member's own
+                // roster row inside the sheet — and hidden past the date on the
+                // same reasoning as the row's: nobody diaries last Tuesday.
+                calendarSent={calendarSent.has(item.id)}
+                onAddToCalendar={
+                  hasFinished(item, loadedAt) ? undefined : () => sendToCalendar(item)
+                }
                 action={
                   <MatchActions
                     match={item}

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Avatar, EmptySeat } from '@/components/avatar';
+import { QuietButton } from '@/components/button';
 import { ContactRows } from '@/components/contact-rows';
 import { EmailGroupButton } from '@/components/email-group-button';
 import { Icon } from '@/components/icon';
@@ -15,7 +16,17 @@ import { canMap, openMap } from '@/lib/maps';
 import { formatFullWhen, formatWhen, isSeated, SEATS_PER_MATCH, type Match } from '@/lib/matches';
 
 /** The roster, in full, with the seats nobody has taken shown as seats. */
-function Roster({ match, userId }: { match: Match; userId: string }) {
+function Roster({
+  match,
+  userId,
+  calendarSent,
+  onAddToCalendar,
+}: {
+  match: Match;
+  userId: string;
+  calendarSent?: boolean;
+  onAddToCalendar?: () => void;
+}) {
   const theme = useTheme();
   const empty = Math.max(0, SEATS_PER_MATCH - match.players.length);
 
@@ -32,6 +43,19 @@ function Roster({ match, userId }: { match: Match; userId: string }) {
             <ThemedText type="label" style={{ color: theme.accentWarmInk }}>
               Host
             </ThemedText>
+          ) : null}
+
+          {/* On the member's own row, where taking a seat just put their name —
+              rather than at the foot of the sheet, where it read as one more grey
+              glyph in a row of controls and was missed. Same icons and same states
+              as My Matches, so the calendar is one recognisable thing everywhere. */}
+          {player.player_id === userId && onAddToCalendar ? (
+            <QuietButton
+              icon={calendarSent ? 'calendarCheck' : 'calendarPlus'}
+              label={calendarSent ? 'Already sent to calendar — send again' : 'Add to calendar'}
+              onPress={onAddToCalendar}
+              tone={calendarSent ? 'done' : 'accent'}
+            />
           ) : null}
         </View>
       ))}
@@ -72,6 +96,8 @@ export function MatchDetailSheet({
   onClose,
   onEdit,
   action,
+  calendarSent,
+  onAddToCalendar,
 }: {
   match: Match;
   userId: string;
@@ -79,6 +105,14 @@ export function MatchDetailSheet({
   distance?: number | null;
   visible: boolean;
   onClose: () => void;
+  /** Whether this member has already sent this match to their calendar. */
+  calendarSent?: boolean;
+  /**
+   * Puts the match in the member's calendar, drawn on their own roster row. Given
+   * only when they hold a seat — there is nothing to diary about a table you have
+   * not joined — so its absence is what hides the control.
+   */
+  onAddToCalendar?: () => void;
   /**
    * Hands off to the edit sheet. Given only by screens that own one, and only
    * shown to the host — so a member reading a match they joined sees no control
@@ -193,7 +227,12 @@ export function MatchDetailSheet({
       </SheetSection>
 
       <SheetSection title={`Players · ${taken} of ${SEATS_PER_MATCH} seats taken`}>
-        <Roster match={match} userId={userId} />
+        <Roster
+          match={match}
+          userId={userId}
+          calendarSent={calendarSent}
+          onAddToCalendar={onAddToCalendar}
+        />
 
         {/*
           Writing to the table, for the host — placed here rather than in the footer

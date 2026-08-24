@@ -104,6 +104,8 @@ export function MatchCard({
   now,
   onEdit,
   detailAction,
+  calendarSent,
+  onAddToCalendar,
 }: {
   match: Match;
   userId: string;
@@ -141,6 +143,9 @@ export function MatchCard({
    * inside this one would stack two sheets on top of each other.
    */
   detailAction?: ReactNode;
+  /** Passed straight through to the detail sheet's roster — see its own props. */
+  calendarSent?: boolean;
+  onAddToCalendar?: () => void;
 }) {
   const theme = useTheme();
   const [showDetail, setShowDetail] = useState(false);
@@ -284,6 +289,8 @@ export function MatchCard({
         onClose={() => setShowDetail(false)}
         onEdit={onEdit ? requestEdit : undefined}
         action={detailAction}
+        calendarSent={calendarSent}
+        onAddToCalendar={onAddToCalendar}
       />
     </View>
   );
