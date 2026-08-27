@@ -319,6 +319,25 @@ export function LeagueDetail({
   };
 
   /**
+   * Re-reads the open seating panel, if it is the one that just changed.
+   *
+   * Everything that rearranges a meetup goes through here. `reloadSessions`
+   * refreshes the summary above the panel — the table count, the subs flag — and
+   * used to be the only thing a redraw called, so the summary would say "3 tables
+   * drawn" over a panel still showing the draw that had just been replaced. The
+   * seats are held in their own state and nothing was refilling it.
+   *
+   * That is not a cosmetic staleness: an organizer shuffles precisely because the
+   * seating is wrong, and the screen answered by showing them the arrangement
+   * they had just discarded, with the players they were trying to move still
+   * sitting where they were.
+   */
+  const refreshSeating = async (sessionId: string) => {
+    if (openSeating !== sessionId) return;
+    setTables(await fetchSessionTables(sessionId));
+  };
+
+  /**
    * Show the seating for a meetup, or put it away.
    *
    * Reloaded on every open rather than cached: a draw, a redraw and somebody
@@ -350,6 +369,7 @@ export function LeagueDetail({
     try {
       await openSessionToSubs(session.id, session.subs_open === 0);
       await reloadSessions();
+      await refreshSeating(session.id);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not change that.');
@@ -456,6 +476,7 @@ export function LeagueDetail({
     try {
       await drawSession(session.id);
       await reloadSessions();
+      await refreshSeating(session.id);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not draw the tables.');
