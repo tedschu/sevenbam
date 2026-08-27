@@ -304,3 +304,10 @@ insert into public.league_members (league_id, profile_id, role)
 values
   ('bbbbbbbb-0000-0000-0000-000000000005', '33333333-3333-3333-3333-333333333333', 'member'),
   ('bbbbbbbb-0000-0000-0000-000000000005', '44444444-4444-4444-4444-444444444444', 'member');
+
+-- Ted is the local stand-in for the maintainer account, so global view can be
+-- exercised against the seed. Production's admin is added by migration
+-- 20260827140000, which matches on the real email address and finds nothing here.
+insert into public.app_admins (profile_id)
+values ('11111111-1111-1111-1111-111111111111')
+on conflict (profile_id) do nothing;

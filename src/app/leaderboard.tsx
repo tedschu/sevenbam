@@ -22,6 +22,7 @@ import {
   Radius,
   Spacing,
 } from '@/constants/theme';
+import { useGlobalView } from '@/hooks/use-global-view';
 import { useTheme } from '@/hooks/use-theme';
 import { fetchLeaderboard, type LeaderboardRow } from '@/lib/leaderboard';
 import { fetchLeagueStandings, fetchMyLeagues, type MyLeague } from '@/lib/leagues';
@@ -142,6 +143,7 @@ function StandingRow({ row, isCurrentUser }: { row: RankedRow; isCurrentUser: bo
 }
 
 export default function LeaderboardScreen() {
+  const globalView = useGlobalView();
   const theme = useTheme();
   const [rows, setRows] = useState<RankedRow[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
@@ -161,7 +163,7 @@ export default function LeaderboardScreen() {
 
       setUserId(user?.id ?? null);
 
-      const mine = user ? await fetchMyLeagues(user.id) : [];
+      const mine = user ? await fetchMyLeagues(user.id, globalView) : [];
       setLeagues(mine);
 
       // Default to the first league, because league standings are the ones with
@@ -174,7 +176,7 @@ export default function LeaderboardScreen() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load the standings.');
     }
-  }, [scopeChosen, scopeId]);
+  }, [scopeChosen, scopeId, globalView]);
 
   // Standings move whenever a host enters scores, so refetch on focus.
   useFocusEffect(

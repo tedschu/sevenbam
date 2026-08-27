@@ -26,6 +26,7 @@ import {
   Spacing,
   type LeagueColor,
 } from '@/constants/theme';
+import { useGlobalView } from '@/hooks/use-global-view';
 import { useTheme } from '@/hooks/use-theme';
 import { createLeague, fetchMyLeagues, type MyLeague } from '@/lib/leagues';
 import { supabase } from '@/lib/supabase';
@@ -185,7 +186,14 @@ function LeagueRow({ league, onPress }: { league: MyLeague; onPress: () => void 
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
           {isArchived ? 'Archived · ' : ''}
-          {league.role === 'organizer' ? 'You organize this' : 'Member'}
+          {/* A viewer is an admin in global view looking at a league they are not
+              in. Said plainly, because a list that mixes leagues you belong to
+              with leagues you are only reading has to tell them apart. */}
+          {league.role === 'organizer'
+            ? 'You organize this'
+            : league.role === 'viewer'
+              ? 'Not a member — viewing'
+              : 'Member'}
         </ThemedText>
       </ThemedView>
     </Pressable>
@@ -193,6 +201,7 @@ function LeagueRow({ league, onPress }: { league: MyLeague; onPress: () => void 
 }
 
 export default function LeaguesScreen() {
+  const globalView = useGlobalView();
   const theme = useTheme();
   const [leagues, setLeagues] = useState<MyLeague[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
@@ -214,12 +223,12 @@ export default function LeaguesScreen() {
       }
 
       setUserId(user.id);
-      setLeagues(await fetchMyLeagues(user.id));
+      setLeagues(await fetchMyLeagues(user.id, globalView));
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load your leagues.');
     }
-  }, []);
+  }, [globalView]);
 
   // Refetch on focus, so a league joined from an invite link on another screen
   // is here when you come back.

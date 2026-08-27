@@ -9,6 +9,7 @@ import {
 import { Image } from 'expo-image';
 import { Pressable, View, StyleSheet } from 'react-native';
 
+import { GlobalViewChip } from './global-view-toggle';
 import { Icon, type IconName } from './icon';
 import { ThemedText } from './themed-text';
 
@@ -181,6 +182,8 @@ export function CustomTabList(props: TabListProps) {
         {/* No pill around the tabs: the gold rule already marks the active one,
             and a filled container made the navigation read as another card. */}
         <View style={styles.innerContainer}>{props.children}</View>
+
+        <GlobalViewChip />
       </View>
     </View>
   );

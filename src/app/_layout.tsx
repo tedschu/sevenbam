@@ -20,6 +20,7 @@ import {
   offerHomeScreenPrompt,
   useHomeScreenPrompt,
 } from '@/hooks/use-home-screen-prompt';
+import { clearAdminStatus, refreshAdminStatus } from '@/hooks/use-global-view';
 import { clearProfileSetup, refreshProfileSetup } from '@/hooks/use-profile-setup';
 import { isPasswordResetPending } from '@/lib/auth';
 import { syncMyAvatar } from '@/lib/profile';
@@ -97,6 +98,9 @@ export default function TabLayout() {
         // Independent of syncMyAvatar, which only ever writes a photo — the name
         // arrives from provider metadata at signup or not at all.
         refreshProfileSetup();
+        // Decides whether the global-view toggle is drawn at all. Same shape as
+        // the line above: asked once per session rather than per screen.
+        refreshAdminStatus();
       }
     })();
 
@@ -109,10 +113,14 @@ export default function TabLayout() {
         syncMyAvatar();
         redeemInvite(session.user.id);
         refreshProfileSetup();
+        refreshAdminStatus();
       } else {
         // Signing out has to clear it, or the mark would still be sitting on a
-        // tab bar that the next member to sign in inherits.
+        // tab bar that the next member to sign in inherits. The same goes double
+        // for global view, which would otherwise carry an admin's visibility into
+        // the next account to sign in on this device.
         clearProfileSetup();
+        clearAdminStatus();
         setRecovering(false);
       }
     });
