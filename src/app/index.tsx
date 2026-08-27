@@ -18,6 +18,7 @@ import { addMatchToCalendar, loadCalendarSent, recordCalendarSent } from '@/lib/
 import {
   coordinatesOf,
   DefaultDistance,
+  fetchDeviceLocation,
   milesBetween,
   timeOfDayOf,
   type Coordinates,
@@ -37,16 +38,17 @@ import { fetchMyHome } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 
 /**
- * How far something is from the member's town, or null when either end has no
- * coordinates.
+ * How far something is from wherever the member is measuring from — their saved
+ * town, or the device's own position when they have asked for that. Null when
+ * either end has no coordinates.
  */
 function distanceFrom(
-  home: Coordinates | null,
+  from: Coordinates | null,
   point: { latitude?: number | null; longitude?: number | null }
 ) {
-  if (!home) return null;
+  if (!from) return null;
   const where = coordinatesOf(point);
-  return where ? milesBetween(home, where) : null;
+  return where ? milesBetween(from, where) : null;
 }
 
 /**
@@ -55,8 +57,8 @@ function distanceFrom(
  * scheduled, or one whose venue was typed rather than picked, has no distance and
  * so is never filtered out by one.
  */
-function leagueDistance(league: PublicLeague, home: Coordinates | null) {
-  return distanceFrom(home, { latitude: league.next_latitude, longitude: league.next_longitude });
+function leagueDistance(league: PublicLeague, from: Coordinates | null) {
+  return distanceFrom(from, { latitude: league.next_latitude, longitude: league.next_longitude });
 }
 
 /**
@@ -77,7 +79,7 @@ type Row =
  * those as "too far" would hide real games from everyone, which is exactly the
  * failure this screen already had.
  */
-function keep(match: Match, filters: BrowseFilters, home: Coordinates | null) {
+function keep(match: Match, filters: BrowseFilters, from: Coordinates | null) {
   if (filters.openOnly && match.status !== 'open') return false;
   if (filters.suppliesOnly && !match.supplies_provided) return false;
 
@@ -86,7 +88,7 @@ function keep(match: Match, filters: BrowseFilters, home: Coordinates | null) {
   if (filters.times.length > 0 && !filters.times.includes(timeOfDayOf(at))) return false;
 
   if (filters.distance !== null) {
-    const miles = distanceFrom(home, match);
+    const miles = distanceFrom(from, match);
     if (miles !== null && miles > filters.distance) return false;
   }
 
@@ -96,17 +98,19 @@ function keep(match: Match, filters: BrowseFilters, home: Coordinates | null) {
 /**
  * Whether a public league belongs in the list.
  *
- * Full leagues are dropped — there is nothing to offer — but one you are already
- * in stays, so that joining visibly succeeds instead of the card silently
- * vanishing. Day and time-of-day filters are not applied: they describe when a
- * single match is, and a league is a season of meetups rather than one date.
+ * A full league stays and reads as full, the same as a full match: the card
+ * already draws itself muted, labels itself "Full" and drops its Join button. A
+ * group that meets near you is worth knowing about in the week you cannot join
+ * it — seats come free, and the card is how somebody finds out the league exists
+ * at all. Dropping them meant a league you had been watching vanished the moment
+ * a stranger took the last seat, with nothing on screen to say why.
+ *
+ * Day and time-of-day filters are not applied: they describe when a single match
+ * is, and a league is a season of meetups rather than one date.
  */
-function keepLeague(league: PublicLeague, filters: BrowseFilters, home: Coordinates | null) {
-  const full = league.seats_left !== null && league.seats_left <= 0;
-  if (full && !league.is_member) return false;
-
+function keepLeague(league: PublicLeague, filters: BrowseFilters, from: Coordinates | null) {
   if (filters.distance !== null) {
-    const miles = leagueDistance(league, home);
+    const miles = leagueDistance(league, from);
     if (miles !== null && miles > filters.distance) return false;
   }
 
@@ -190,6 +194,19 @@ export default function BrowseMatchesScreen() {
    * needs it, and a member can change their town on Profile mid-session.
    */
   const [home, setHome] = useState<Coordinates | null>(null);
+  /**
+   * Where the device says the member is, once they have asked for it, and whether
+   * the list is currently measured from there.
+   *
+   * Deliberately not persisted and not asked for on load. A permission prompt on
+   * open is the kind of thing people refuse on principle, and the answer would be
+   * stale by the next session anyway — this is for the trip you are on now, so it
+   * lasts as long as the screen does.
+   */
+  const [here, setHere] = useState<Coordinates | null>(null);
+  const [usingDeviceLocation, setUsingDeviceLocation] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [leagues, setLeagues] = useState<PublicLeague[]>([]);
   /**
    * The instant the cards' timing labels are measured against, captured when the
@@ -325,11 +342,44 @@ export default function BrowseMatchesScreen() {
     [load, maybePromptHomeScreen]
   );
 
-  const visible = matches.filter((match) => keep(match, filters, home));
+  /**
+   * Asks the device where it is, and measures from there once it answers.
+   *
+   * A refusal is left silent on purpose: the prompt said what was being asked and
+   * the member said no, so repeating it back as an error would be scolding them
+   * for an answer they meant. The button stays where it is, which is the whole of
+   * what they need to change their mind.
+   */
+  const useDeviceLocation = async () => {
+    setLocating(true);
+    setLocationError(null);
+    try {
+      const found = await fetchDeviceLocation();
+      if (found) {
+        setHere(found);
+        setUsingDeviceLocation(true);
+      }
+    } catch (cause) {
+      setLocationError(
+        cause instanceof Error ? cause.message : 'Could not tell where you are.'
+      );
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  /**
+   * What distances are measured from. The device fix wins only while it is both
+   * asked for and actually in hand, so a failed lookup silently leaves the saved
+   * town doing the job it was already doing.
+   */
+  const origin = usingDeviceLocation && here ? here : home;
+
+  const visible = matches.filter((match) => keep(match, filters, origin));
   // Counted over what is on screen, not over everything loaded. Counting the
   // whole list put "4 tables open" above a filtered list of one.
   const openCount = visible.filter((match) => match.status === 'open').length;
-  const visibleLeagues = leagues.filter((league) => keepLeague(league, filters, home));
+  const visibleLeagues = leagues.filter((league) => keepLeague(league, filters, origin));
 
   // Leagues first: there are few of them, and joining one is the bigger
   // commitment, so it should not be buried under a season's worth of tables.
@@ -338,13 +388,13 @@ export default function BrowseMatchesScreen() {
       key: `league-${league.id}`,
       kind: 'league' as const,
       league,
-      distance: leagueDistance(league, home),
+      distance: leagueDistance(league, origin),
     })),
     ...visible.map((match) => ({
       key: `match-${match.id}`,
       kind: 'match' as const,
       match,
-      distance: distanceFrom(home, match),
+      distance: distanceFrom(origin, match),
     })),
   ];
 
@@ -391,7 +441,14 @@ export default function BrowseMatchesScreen() {
           onChange={setFilters}
           expanded={filtersExpanded}
           onToggleExpanded={() => setFiltersExpanded((open) => !open)}
-          hasHome={home !== null}
+          origin={{
+            hasHome: home !== null,
+            usingDevice: usingDeviceLocation && here !== null,
+            busy: locating,
+            error: locationError,
+            onUseDevice: useDeviceLocation,
+            onUseHome: () => setUsingDeviceLocation(false),
+          }}
         />
 
         {error ? (

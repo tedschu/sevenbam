@@ -57,7 +57,12 @@ export type PublicLeague = {
 };
 
 /** A league plus where the signed-in member stands in it. */
-export type MyLeague = League & { role: LeagueRole };
+export type MyLeague = League & {
+  role: LeagueRole;
+  /** When the role last changed under them, and when they said they had seen it. */
+  roleChangedAt: string | null;
+  roleAckAt: string | null;
+};
 
 export type LeagueMember = {
   profile_id: string;
@@ -106,7 +111,7 @@ export async function fetchMyLeagues(userId: string): Promise<MyLeague[]> {
   const { data, error } = await supabase
     .from('league_members')
     .select(
-      'role, league:leagues (id, name, color, created_by, invite_token, is_public, max_members, archived_at)'
+      'role, role_changed_at, role_ack_at, league:leagues (id, name, color, created_by, invite_token, is_public, max_members, archived_at)'
     )
     .eq('profile_id', userId)
     .order('joined_at');
@@ -116,9 +121,46 @@ export async function fetchMyLeagues(userId: string): Promise<MyLeague[]> {
   return (data ?? [])
     .map((row) => {
       const league = row.league as League | null;
-      return league ? { ...league, role: row.role as LeagueRole } : null;
+      return league
+        ? {
+            ...league,
+            role: row.role as LeagueRole,
+            roleChangedAt: row.role_changed_at as string | null,
+            roleAckAt: row.role_ack_at as string | null,
+          }
+        : null;
     })
     .filter((league): league is MyLeague => league !== null);
+}
+
+/**
+ * Whether this member has been handed the league, or had it taken back, since
+ * they last said they had seen it.
+ *
+ * A comparison rather than a flag so a second change re-announces itself, and
+ * false for a membership that has never changed — joining as a member is not news
+ * to the person who just joined.
+ */
+export function hasUnseenRoleChange(league: MyLeague) {
+  if (!league.roleChangedAt) return false;
+  if (!league.roleAckAt) return true;
+
+  return new Date(league.roleChangedAt) > new Date(league.roleAckAt);
+}
+
+/**
+ * Marks the notice as read.
+ *
+ * An RPC rather than an update, because the update policy on `league_members` is
+ * organizer-only and widening it for this would let any member write their own
+ * `role`. The function writes the one column instead. See 20260826190000.
+ */
+export async function acknowledgeRoleChange(leagueId: string) {
+  const { error } = await supabase.rpc('acknowledge_league_role_change', {
+    p_league: leagueId,
+  });
+
+  if (error) throw error;
 }
 
 /**
@@ -267,6 +309,30 @@ export async function fetchLeagueMembers(leagueId: string): Promise<LeagueMember
 
   if (error) throw error;
   return (data ?? []) as LeagueMember[];
+}
+
+/**
+ * Hands the league to another member, or takes it back.
+ *
+ * A plain update rather than an RPC: the "Organizers can change roles" policy
+ * already says who may do this, so a function would only restate it somewhere
+ * else. The one rule RLS cannot express — that the last organizer may not step
+ * down — is a trigger on the table, so the error surfaces here as an ordinary
+ * failed write with a message worth showing. See 20260826180000.
+ *
+ * Organizer is the whole of running a league, not a lesser deputy role: whoever
+ * holds it can move meetups, draw tables, archive, delete, and promote further
+ * organizers. There is deliberately no rank among them and none of it keys off
+ * `created_by`, so handing it over is a real handover rather than a loan.
+ */
+export async function setLeagueRole(leagueId: string, profileId: string, role: LeagueRole) {
+  const { error } = await supabase
+    .from('league_members')
+    .update({ role })
+    .eq('league_id', leagueId)
+    .eq('profile_id', profileId);
+
+  if (error) throw error;
 }
 
 export async function leaveLeague(leagueId: string, userId: string) {

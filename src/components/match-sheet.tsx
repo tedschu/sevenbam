@@ -390,7 +390,7 @@ export function MatchSheet({
             {leagues.length > 0 ? (
               <View style={styles.field}>
                 <ThemedText type="label" themeColor="textSecondary">
-                  Counts toward
+                  Points count toward
                 </ThemedText>
                 <View style={styles.leagueChips}>
                   <Pressable

@@ -40,18 +40,24 @@ export type Database = {
           league_id: string
           profile_id: string
           role: string
+          role_ack_at: string | null
+          role_changed_at: string | null
         }
         Insert: {
           joined_at?: string
           league_id: string
           profile_id: string
           role?: string
+          role_ack_at?: string | null
+          role_changed_at?: string | null
         }
         Update: {
           joined_at?: string
           league_id?: string
           profile_id?: string
           role?: string
+          role_ack_at?: string | null
+          role_changed_at?: string | null
         }
         Relationships: [
           {
@@ -548,6 +554,10 @@ export type Database = {
       }
     }
     Functions: {
+      acknowledge_league_role_change: {
+        Args: { p_league: string }
+        Returns: undefined
+      }
       anonymous_player_name: { Args: { p_profile_id: string }; Returns: string }
       delete_league: { Args: { p_league_id: string }; Returns: undefined }
       delete_my_account: { Args: never; Returns: undefined }
