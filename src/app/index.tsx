@@ -96,17 +96,19 @@ function keep(match: Match, filters: BrowseFilters, home: Coordinates | null) {
 /**
  * Whether a public league belongs in the list.
  *
- * Full leagues are dropped — there is nothing to offer — but one you are already
- * in stays, so that joining visibly succeeds instead of the card silently
- * vanishing. Day and time-of-day filters are not applied: they describe when a
- * single match is, and a league is a season of meetups rather than one date.
+ * A full league stays and reads as full, the same as a full match: the card
+ * already draws itself muted, labels itself "Full" and drops its Join button. A
+ * group that meets near you is worth knowing about in the week you cannot join
+ * it — seats come free, and the card is how somebody finds out the league exists
+ * at all. Dropping them meant a league you had been watching vanished the moment
+ * a stranger took the last seat, with nothing on screen to say why.
+ *
+ * Day and time-of-day filters are not applied: they describe when a single match
+ * is, and a league is a season of meetups rather than one date.
  */
-function keepLeague(league: PublicLeague, filters: BrowseFilters, home: Coordinates | null) {
-  const full = league.seats_left !== null && league.seats_left <= 0;
-  if (full && !league.is_member) return false;
-
+function keepLeague(league: PublicLeague, filters: BrowseFilters, from: Coordinates | null) {
   if (filters.distance !== null) {
-    const miles = leagueDistance(league, home);
+    const miles = leagueDistance(league, from);
     if (miles !== null && miles > filters.distance) return false;
   }
 
