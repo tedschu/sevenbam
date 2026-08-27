@@ -7,6 +7,8 @@
  * otherwise never need them. Revisit if the list ever runs to thousands.
  */
 
+import * as Location from 'expo-location';
+
 export type Coordinates = { latitude: number; longitude: number };
 
 /** Mean radius. Good to a fraction of a percent at the distances this filters on. */
@@ -41,6 +43,38 @@ export function coordinatesOf(row: {
 }): Coordinates | null {
   if (typeof row.latitude !== 'number' || typeof row.longitude !== 'number') return null;
   return { latitude: row.latitude, longitude: row.longitude };
+}
+
+/**
+ * Where the member is standing, for measuring distance from instead of their
+ * saved town.
+ *
+ * A town is the right default — it is stable, it needs no permission, and it is
+ * where most people are looking for a game from. It is also wrong precisely when
+ * somebody is most likely to be searching: away for the weekend, at the office,
+ * new in a place they have not set a town for yet. So this is offered beside it
+ * rather than in place of it.
+ *
+ * Returns null on refusal rather than throwing, because a declined permission
+ * prompt is an answer, not a fault: the caller quietly stays on the saved town.
+ * A genuine failure — location services off at the OS level, a fix that never
+ * arrives — throws, since that one is worth a sentence on screen.
+ */
+export async function fetchDeviceLocation(): Promise<Coordinates | null> {
+  const { granted } = await Location.requestForegroundPermissionsAsync();
+  if (!granted) return null;
+
+  // `Balanced` rather than `High`: the nearest hundred metres is far finer than
+  // a filter whose smallest step is five miles can use, and asking for better
+  // costs a GPS fix and the seconds that go with it.
+  const position = await Location.getCurrentPositionAsync({
+    accuracy: Location.Accuracy.Balanced,
+  });
+
+  return {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+  };
 }
 
 /**
