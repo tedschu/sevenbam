@@ -109,9 +109,14 @@ export async function signOut() {
  * `auth.uid()`, so there is no id to pass and no way to aim it at anyone else.
  *
  * What it does is wider than deleting a row, and the profile screen says so
- * before calling it — future matches are handed on or called off, leagues get a
- * new organizer, and the profile becomes an anonymous tombstone so that other
- * people's scores and standings still add up. See 20260816010000.
+ * before calling it — future matches are handed on or called off, dormant leagues
+ * get a new organizer, and the profile becomes an anonymous tombstone so that
+ * other people's scores and standings still add up. See 20260816010000.
+ *
+ * It can also refuse outright, which is why the caller shows the message rather
+ * than a fixed string: closing the account is blocked while the member solely
+ * organizes a league that still has meetups ahead of it, and the refusal names
+ * those leagues and what to do about them. See 20260826200000.
  *
  * The local session is cleared afterwards. Not for tidiness: the access token
  * outlives the user row it names, so anything the app did next would fail with an

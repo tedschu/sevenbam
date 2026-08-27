@@ -31,13 +31,17 @@ import {
   fetchSeasons,
   fetchSessions,
   fetchSessionTables,
+  hasUnseenRoleChange,
   inviteUrlFor,
   leaveLeague,
+  acknowledgeRoleChange,
   setLeagueArchived,
+  setLeagueRole,
   updateLeagueVisibility,
   updateSession,
   type LeagueFootprint,
   type LeagueMember,
+  type LeagueRole,
   type LeagueSession,
   type MyLeague,
   type SessionTable,
@@ -140,6 +144,8 @@ export function LeagueDetail({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /** Local so the notice goes the instant it is answered. See showRoleNotice. */
+  const [roleNoticeDismissed, setRoleNoticeDismissed] = useState(false);
 
   const [isPublic, setIsPublic] = useState(league.is_public);
   const [maxMembers, setMaxMembers] = useState(
@@ -598,6 +604,30 @@ export function LeagueDetail({
     }
   };
 
+  /**
+   * Hands the league to another member, or takes it back.
+   *
+   * `onChanged` on every path, not only when it was your own row: the parent
+   * holds this league's `role` and the screen's own controls are drawn from it,
+   * so stepping down has to leave the list behind refreshed rather than showing a
+   * league you no longer run as one you do.
+   */
+  const changeRole = async (member: LeagueMember, role: LeagueRole) => {
+    setBusy(`role-${member.profile_id}`);
+    try {
+      await setLeagueRole(league.id, member.profile_id, role);
+      await load();
+      onChanged();
+      setError(null);
+    } catch (cause) {
+      // The trigger's refusal is written for a person to read, so it is shown as
+      // it comes rather than flattened into "could not change the role".
+      setError(cause instanceof Error ? cause.message : 'Could not change that role.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const leave = async () => {
     setBusy('leave');
     try {
@@ -654,6 +684,32 @@ export function LeagueDetail({
    */
   const canDelete = isOrganizer && footprint !== null && footprint.played === 0;
 
+  /**
+   * Who runs the league, which decides whether stepping down is on offer. Counted
+   * from the roster rather than tracked separately so it cannot disagree with the
+   * rows the buttons are drawn on.
+   */
+  const organizers = members.filter((member) => member.role === 'organizer');
+
+  /**
+   * Hidden the moment it is dismissed rather than after the write comes back, so
+   * the button does not sit there looking unpressed while a round trip finishes.
+   * The server's answer only decides whether it stays gone next time.
+   */
+  const showRoleNotice = hasUnseenRoleChange(league) && !roleNoticeDismissed;
+
+  const dismissRoleNotice = async () => {
+    setRoleNoticeDismissed(true);
+    try {
+      await acknowledgeRoleChange(league.id);
+      onChanged();
+    } catch {
+      // Swallowed on purpose. Failing to record that a notice was read is not
+      // something to interrupt somebody with; the worst case is seeing it once
+      // more, which is a good deal better than an error about a dismissed banner.
+    }
+  };
+
   /** Availability for one meetup, with zeroes until it has loaded. */
   const here = (session: LeagueSession) => attendance[session.id] ?? EmptyAttendance;
 
@@ -702,6 +758,48 @@ export function LeagueDetail({
             league is not listed anywhere, its invite link no longer works, and no
             new meetups can be added.
           </ThemedText>
+        </ThemedView>
+      ) : null}
+
+      {/* What changed under them while they were away.
+
+          Above the league rather than on Browse with the profile prompt: the news
+          is about this league specifically, and it is only actionable next to the
+          controls it just granted or took away. Dismissed explicitly rather than
+          on sight — being handed a league is worth an acknowledgement, and a
+          notice that clears itself as the screen scrolls past has not been read.
+      */}
+      {showRoleNotice ? (
+        <ThemedView
+          type="backgroundSelected"
+          style={[styles.notice, { borderColor: theme.accentWarm }]}>
+          {/* The group versus one of its members, which is the change itself. */}
+          <Icon name={isOrganizer ? 'people' : 'person'} color={theme.accentWarmInk} size={18} />
+          <View style={styles.noticeBody}>
+            <ThemedText type="smallBold" style={{ color: theme.accentWarmInk }}>
+              {isOrganizer
+                ? `You now organize ${league.name}`
+                : `You are no longer an organizer of ${league.name}`}
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {isOrganizer
+                ? 'You can move meetups, draw the tables, edit the league and make other members organizers. Whoever else organizes it still can too.'
+                : 'You can still see everything and play. Changing meetups and drawing tables is back to the other organizers.'}
+            </ThemedText>
+          </View>
+          <Pressable
+            onPress={dismissRoleNotice}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss this notice"
+            style={({ pressed }) => [
+              styles.roleButton,
+              { borderColor: theme.accentWarm },
+              pressed && styles.pressed,
+            ]}>
+            <ThemedText type="label" style={{ color: theme.accentWarmInk }}>
+              Got it
+            </ThemedText>
+          </Pressable>
         </ThemedView>
       ) : null}
 
@@ -801,20 +899,70 @@ export function LeagueDetail({
         <ThemedText type="label" themeColor="textSecondary">
           Members
         </ThemedText>
-        {members.map((member) => (
-          <View key={member.profile_id} style={styles.memberRow}>
-            <Avatar person={member.profile ?? { name: null }} size={32} ring={theme.rule} />
-            <ThemedText type="default" numberOfLines={1} style={styles.memberName}>
-              {member.profile?.name ?? 'Unnamed member'}
-              {member.profile_id === userId ? ' (you)' : ''}
-            </ThemedText>
-            {member.role === 'organizer' ? (
-              <ThemedText type="label" style={{ color: theme.accentInk }}>
-                Organizer
+        {members.map((member) => {
+          const theyOrganize = member.role === 'organizer';
+          const isYou = member.profile_id === userId;
+          /**
+           * The last organizer keeps the role whatever the button says, because
+           * the trigger refuses it — so the control is not drawn at all rather
+           * than offered and then rejected. The note under the roster explains
+           * the absence, which a missing button cannot do by itself.
+           */
+          const canChangeRole = canRun && (!theyOrganize || organizers.length > 1);
+
+          return (
+            <View key={member.profile_id} style={styles.memberRow}>
+              <Avatar person={member.profile ?? { name: null }} size={32} ring={theme.rule} />
+              <ThemedText type="default" numberOfLines={1} style={styles.memberName}>
+                {member.profile?.name ?? 'Unnamed member'}
+                {isYou ? ' (you)' : ''}
               </ThemedText>
-            ) : null}
-          </View>
-        ))}
+              {theyOrganize ? (
+                <ThemedText type="label" style={{ color: theme.accentInk }}>
+                  Organizer
+                </ThemedText>
+              ) : null}
+
+              {busy === `role-${member.profile_id}` ? (
+                <ActivityIndicator />
+              ) : canChangeRole ? (
+                <Pressable
+                  onPress={() => changeRole(member, theyOrganize ? 'member' : 'organizer')}
+                  accessibilityRole="button"
+                  // Spelled out rather than left to the button's two words, which
+                  // read as an instruction with no object when a screen reader
+                  // reaches them out of the row's context.
+                  accessibilityLabel={
+                    theyOrganize
+                      ? isYou
+                        ? 'Step down as organizer of this league'
+                        : `Make ${member.profile?.name ?? 'this member'} a member again`
+                      : `Make ${member.profile?.name ?? 'this member'} an organizer`
+                  }
+                  style={({ pressed }) => [
+                    styles.roleButton,
+                    { borderColor: theme.rule },
+                    pressed && styles.pressed,
+                  ]}>
+                  {/* "Make member" rather than "Remove": next to a name, on a row
+                      that an organizer can also delete people from, "remove" reads
+                      as throwing them out of the league altogether. */}
+                  <ThemedText type="label" themeColor="textSecondary">
+                    {theyOrganize ? (isYou ? 'Step down' : 'Make member') : 'Make organizer'}
+                  </ThemedText>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })}
+
+        {/* Why the only organizer has no Step down button. Without this the
+            control is simply missing on your own row, which reads as a bug. */}
+        {canRun && organizers.length === 1 && isOrganizer ? (
+          <ThemedText type="small" themeColor="textSecondary">
+            You are the only organizer. Make someone else an organizer before you step down.
+          </ThemedText>
+        ) : null}
 
         {/* Writing to the league, for whoever runs it. Under the roster it reaches,
             and still offered on an archived league: telling members a season has
@@ -1553,6 +1701,11 @@ const styles = StyleSheet.create({
   noticeText: {
     flex: 1,
   },
+  /** Two lines rather than the archived notice's one, so they need spacing. */
+  noticeBody: {
+    flex: 1,
+    gap: Spacing.one,
+  },
   emailMembers: {
     marginTop: Spacing.two,
   },
@@ -1573,6 +1726,19 @@ const styles = StyleSheet.create({
     minHeight: 40,
     borderRadius: Radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  /**
+   * Outlined and quiet, sitting at the end of a member's row. Handing the league
+   * over is consequential but rare, so it should be findable without competing
+   * with the meetup controls above — the same reasoning as the map link.
+   */
+  roleButton: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    minHeight: 32,
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: Radius.pill,
   },
   /** Separates the irreversible action from the reversible one above it. */
   removal: {

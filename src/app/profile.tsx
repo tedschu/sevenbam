@@ -468,8 +468,14 @@ export default function ProfileScreen() {
                   </ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
                     Matches you are hosting that have not happened yet pass to
-                    another player, or are called off if nobody else has joined. A
-                    league you organize gets a new organizer.
+                    another player, or are called off if nobody else has joined.
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    A league you are the only organizer of needs someone else made
+                    an organizer first, if it still has meetups coming up — the
+                    roster has a button beside every name. Leagues that have gone
+                    quiet pass to their longest-standing member on their own, or
+                    are archived if you were the last one in them.
                   </ThemedText>
                   <View style={styles.removalActions}>
                     <Pressable
