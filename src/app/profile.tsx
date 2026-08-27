@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GradientButton } from '@/components/button';
+import { GlobalViewRow } from '@/components/global-view-toggle';
 import { Icon } from '@/components/icon';
 import { PlaceAutocompleteInput } from '@/components/place-autocomplete-input';
 import { ThemedText } from '@/components/themed-text';
@@ -431,6 +432,17 @@ export default function ProfileScreen() {
             ) : null}
 
             <GradientButton label="Save profile" onPress={save} busy={isSaving} wide />
+
+            {/* What this account is currently able to see, for the one account
+                that can see more than its own. Above Sign out and below Save
+                because it is not part of the profile being edited — it changes
+                what every other screen is showing, which is closer to signing out
+                than to a field.
+
+                This is the only route to the mode on a phone: the wide tab bar
+                has a chip in its corner, and the narrow layout has no such
+                corner. Drawn for nobody else — see GlobalViewRow. */}
+            <GlobalViewRow />
 
             {/* Signing out is not something to encourage, so it stays the quietest
                 control on the screen rather than taking the outline treatment. */}

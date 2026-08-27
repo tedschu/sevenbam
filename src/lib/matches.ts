@@ -249,7 +249,19 @@ export function parseTimeOfDay(input: string): { hour: number; minute: number } 
 }
 
 /** Matches the signed-in member is seated at, plus any they host but have not taken a seat in. */
-export async function fetchMyMatches(userId: string): Promise<Match[]> {
+export async function fetchMyMatches(userId: string, globalView = false): Promise<Match[]> {
+  // Every match there is, for an admin in global view. No seat lookup, because
+  // the question is not which of these they are in — it is what the app holds.
+  if (globalView) {
+    const { data, error } = await supabase
+      .from('matches')
+      .select(MATCH_SELECT)
+      .order('date_time');
+
+    if (error) throw error;
+    return (data ?? []) as Match[];
+  }
+
   const { data: seats, error: seatsError } = await supabase
     .from('match_players')
     .select('match_id')
@@ -307,19 +319,27 @@ export async function createMatch(hostId: string, match: NewMatch): Promise<stri
  * non-member could take a seat in a league they are not in. They appear on the
  * league's own screen and in My Matches.
  */
-export async function fetchUpcomingMatches(): Promise<Match[]> {
-  const { data, error } = await supabase
+export async function fetchUpcomingMatches(globalView = false): Promise<Match[]> {
+  const query = supabase
     .from('matches')
     .select(MATCH_SELECT)
-    // League tables are dealt rather than claimed, so they stay out of Browse —
-    // except the ones an organizer has opened to subs, which is exactly a league
-    // table asking to be claimed. The insert policy on `match_players` makes the
-    // matching exception, so the Join button here is not offering something the
-    // database will refuse.
-    .or('league_id.is.null,needs_sub.eq.true')
     .in('status', ['open', 'full'])
     .gte('date_time', new Date().toISOString())
     .order('date_time');
+
+  // League tables are dealt rather than claimed, so they stay out of Browse —
+  // except the ones an organizer has opened to subs, which is exactly a league
+  // table asking to be claimed. The insert policy on `match_players` makes the
+  // matching exception, so the Join button here is not offering something the
+  // database will refuse.
+  //
+  // Global view lifts that, since a dealt table is precisely what an admin came
+  // to look at. Their Join buttons are a different question and are answered the
+  // same way they always were — by the insert policy, which has not changed and
+  // will still refuse a seat at a league they are not in.
+  const { data, error } = await (globalView
+    ? query
+    : query.or('league_id.is.null,needs_sub.eq.true'));
 
   if (error) throw error;
   return (data ?? []) as Match[];

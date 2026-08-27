@@ -13,6 +13,7 @@ import { Ribbon } from '@/components/ribbon';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import { useGlobalView } from '@/hooks/use-global-view';
 import { useTheme } from '@/hooks/use-theme';
 import { addMatchToCalendar, loadCalendarSent, recordCalendarSent } from '@/lib/calendar';
 import {
@@ -184,6 +185,7 @@ function SeatButton({
 }
 
 export default function BrowseMatchesScreen() {
+  const globalView = useGlobalView();
   const theme = useTheme();
   const [matches, setMatches] = useState<Match[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
@@ -247,7 +249,7 @@ export default function BrowseMatchesScreen() {
       }
 
       setUserId(user.id);
-      setMatches(await fetchUpcomingMatches());
+      setMatches(await fetchUpcomingMatches(globalView));
       // Never throws — a failed lookup just means no distance filtering.
       setHome(await fetchMyHome(user.id));
       // Swallowed on purpose: a directory that fails to load should not take the
@@ -259,7 +261,9 @@ export default function BrowseMatchesScreen() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load matches.');
     }
-  }, []);
+    // Reloads when the toggle moves: `load` changes identity, the focus effect
+    // depends on it, and the focused screen is the one being looked at.
+  }, [globalView]);
 
   const sendToCalendar = useCallback(
     async (match: Match) => {

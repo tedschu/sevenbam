@@ -20,6 +20,7 @@ import { ScoreEntrySheet } from '@/components/score-entry-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, OnAccent, Radius, Spacing } from '@/constants/theme';
+import { useGlobalView } from '@/hooks/use-global-view';
 import { useTheme } from '@/hooks/use-theme';
 import { fetchSessionAttendance, setAttendance, type Availability } from '@/lib/attendance';
 import {
@@ -255,6 +256,7 @@ function RsvpButtons({
 }
 
 export default function MatchesScreen() {
+  const globalView = useGlobalView();
   const [matches, setMatches] = useState<Match[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -295,7 +297,7 @@ export default function MatchesScreen() {
       }
 
       setUserId(user.id);
-      const mine = await fetchMyMatches(user.id);
+      const mine = await fetchMyMatches(user.id, globalView);
       setMatches(mine);
       setCalendarSent(await loadCalendarSent(user.id));
       setLoadedAt(Date.now());
@@ -313,7 +315,7 @@ export default function MatchesScreen() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load your matches.');
     }
-  }, []);
+  }, [globalView]);
 
   // Refetch on focus so seats taken elsewhere in the app show up on return.
   useFocusEffect(

@@ -7,6 +7,18 @@ import type { LeagueColor } from '@/constants/theme';
 
 export type LeagueRole = 'organizer' | 'member';
 
+/**
+ * What the signed-in account is to a league, including being nothing to it.
+ *
+ * `viewer` never comes from the database — there is no such role and
+ * `setLeagueRole` will not accept one. It is what an admin reading the app in
+ * global view is to a league they do not belong to, and it exists so that every
+ * screen drawn from `role` keeps working without learning about admins: a viewer
+ * is not an organizer, so no control that asks "may I run this?" appears, and the
+ * member-only actions test for it directly.
+ */
+export type LeagueRelation = LeagueRole | 'viewer';
+
 export type League = {
   id: string;
   name: string;
@@ -58,7 +70,7 @@ export type PublicLeague = {
 
 /** A league plus where the signed-in member stands in it. */
 export type MyLeague = League & {
-  role: LeagueRole;
+  role: LeagueRelation;
   /** When the role last changed under them, and when they said they had seen it. */
   roleChangedAt: string | null;
   roleAckAt: string | null;
@@ -104,10 +116,15 @@ export type LeagueStanding = {
 };
 
 /**
- * Leagues the signed-in member belongs to. Read through league_members rather
- * than leagues, because the row that says which of them you organize is there.
+ * Leagues the signed-in member belongs to, or every league there is when an admin
+ * is reading the app in global view.
+ *
+ * Read through league_members rather than leagues, because the row that says
+ * which of them you organize is there.
  */
-export async function fetchMyLeagues(userId: string): Promise<MyLeague[]> {
+export async function fetchMyLeagues(userId: string, globalView = false): Promise<MyLeague[]> {
+  if (globalView) return fetchEveryLeague(userId);
+
   const { data, error } = await supabase
     .from('league_members')
     .select(
@@ -124,13 +141,54 @@ export async function fetchMyLeagues(userId: string): Promise<MyLeague[]> {
       return league
         ? {
             ...league,
-            role: row.role as LeagueRole,
+            role: row.role as LeagueRelation,
             roleChangedAt: row.role_changed_at as string | null,
             roleAckAt: row.role_ack_at as string | null,
           }
         : null;
     })
     .filter((league): league is MyLeague => league !== null);
+}
+
+/**
+ * Every league in the app, for an admin in global view.
+ *
+ * Two reads rather than one: the leagues, and separately whatever the admin's own
+ * memberships are. Merged so that a league they really are in keeps its real role
+ * and behaves exactly as it always does — global view is meant to add leagues to
+ * the list, not to change the ones already on it.
+ *
+ * Everything else comes back as `viewer`, which is not a role and is never
+ * written anywhere. Looking at a league does not join it: there is no membership
+ * row, no seat, and no way to get one from here, because the admin policies are
+ * `for select` and nothing else. A viewer is simply someone the league does not
+ * know about who can nonetheless read it.
+ *
+ * Ordered by name rather than by joined_at, which is meaningless for a list that
+ * is mostly leagues this account never joined.
+ */
+async function fetchEveryLeague(userId: string): Promise<MyLeague[]> {
+  const [all, mine] = await Promise.all([
+    supabase
+      .from('leagues')
+      .select('id, name, color, created_by, invite_token, is_public, max_members, archived_at')
+      .order('name'),
+    fetchMyLeagues(userId),
+  ]);
+
+  if (all.error) throw all.error;
+
+  const byId = new Map(mine.map((league) => [league.id, league]));
+
+  return (all.data ?? []).map(
+    (league) =>
+      byId.get(league.id) ?? {
+        ...(league as League),
+        role: 'viewer' as const,
+        roleChangedAt: null,
+        roleAckAt: null,
+      }
+  );
 }
 
 /**

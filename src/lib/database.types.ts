@@ -34,6 +34,43 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_admins: {
+        Row: {
+          added_at: string
+          profile_id: string
+        }
+        Insert: {
+          added_at?: string
+          profile_id: string
+        }
+        Update: {
+          added_at?: string
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_admins_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "leaderboard"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "app_admins_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "league_standings"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "app_admins_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       league_members: {
         Row: {
           joined_at: string
@@ -559,6 +596,7 @@ export type Database = {
         Returns: undefined
       }
       anonymous_player_name: { Args: { p_profile_id: string }; Returns: string }
+      assert_leagues_have_a_successor: { Args: never; Returns: undefined }
       delete_league: { Args: { p_league_id: string }; Returns: undefined }
       delete_my_account: { Args: never; Returns: undefined }
       draw_league_session: { Args: { p_session_id: string }; Returns: number }
@@ -566,6 +604,7 @@ export type Database = {
         Args: { p_match_id: string; p_scores: Json }
         Returns: undefined
       }
+      is_admin: { Args: never; Returns: boolean }
       is_league_member: { Args: { p_league: string }; Returns: boolean }
       is_league_organizer: { Args: { p_league: string }; Returns: boolean }
       join_league_with_token: { Args: { p_token: string }; Returns: string }

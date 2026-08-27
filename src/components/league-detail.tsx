@@ -128,6 +128,13 @@ export function LeagueDetail({
   const tint = LeagueColors[league.color] ?? theme.accent;
   const isOrganizer = league.role === 'organizer';
   /**
+   * An admin in global view reading a league they do not belong to. Not a role —
+   * see LeagueRelation — and deliberately not folded into `isOrganizer`, because
+   * the two answer different questions: whether controls appear, and whether the
+   * screen may claim this account is in the league.
+   */
+  const isViewer = league.role === 'viewer';
+  /**
    * An archived league is read-only: no new seasons, no new meetups, no draws, and
    * nobody joining through either door. Everything already in it stays visible,
    * which is the point of archiving rather than deleting.
@@ -741,7 +748,11 @@ export function LeagueDetail({
           <ThemedText type="title">{league.name}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
             {members.length} {members.length === 1 ? 'member' : 'members'} ·{' '}
-            {isOrganizer ? 'You organize this' : 'You are a member'}
+            {isOrganizer
+              ? 'You organize this'
+              : isViewer
+                ? 'Not a member — viewing'
+                : 'You are a member'}
           </ThemedText>
         </View>
       </View>
@@ -812,7 +823,14 @@ export function LeagueDetail({
       {isLoading ? <ActivityIndicator style={styles.centered} /> : null}
 
       {/* Invite link. Anyone with it can join, which is the whole mechanism —
-          there is no separate approval step, by design. */}
+          there is no separate approval step, by design.
+
+          Hidden from a viewer. Everything else on this screen is something to
+          read, but this is a capability: the link admits whoever opens it, so
+          handing a Copy button to somebody with no standing in the league is
+          offering them a way to change it after all. Reading a league should not
+          come with the power to fill it. */}
+      {isViewer ? null : (
       <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
         <ThemedText type="label" themeColor="textSecondary">
           Invite link
@@ -843,6 +861,7 @@ export function LeagueDetail({
             : 'Anyone who opens this link and signs in joins the league.'}
         </ThemedText>
       </ThemedView>
+      )}
 
       {/* Discoverability, organizers only. A member should not be able to publish
           a group they do not run. The database agrees — the update policy on
@@ -1637,11 +1656,21 @@ export function LeagueDetail({
         </ThemedView>
       ) : null}
 
-      <Pressable onPress={leave} style={({ pressed }) => pressed && styles.pressed}>
-        <ThemedText type="label" style={[styles.destructive, { color: theme.danger }]}>
-          {busy === 'leave' ? 'Leaving…' : 'Leave this league'}
+      {/* Not offered to a viewer, who has nothing to leave. The delete policy
+          would refuse it anyway, but an admin reading a league they are not in
+          should not be shown a red button that claims otherwise. */}
+      {league.role === 'viewer' ? (
+        <ThemedText type="small" themeColor="textSecondary" style={styles.destructive}>
+          You are not a member of this league. You are seeing it because global
+          view is on.
         </ThemedText>
-      </Pressable>
+      ) : (
+        <Pressable onPress={leave} style={({ pressed }) => pressed && styles.pressed}>
+          <ThemedText type="label" style={[styles.destructive, { color: theme.danger }]}>
+            {busy === 'leave' ? 'Leaving…' : 'Leave this league'}
+          </ThemedText>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }
