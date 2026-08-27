@@ -1,5 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
-import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -255,12 +256,78 @@ export function LeagueDetail({
     }
   }, [isOrganizer, league.id]);
 
+  /**
+   * What the screen is showing, kept in refs so the focus effect below can read
+   * the current values without listing them as dependencies. Naming them there
+   * would re-arm the effect — and re-run the whole load — every time somebody
+   * merely opened a seating panel.
+   */
+  const openSeatingRef = useRef(openSeating);
+  const seasonIdRef = useRef(seasonId);
+
   useEffect(() => {
-    (async () => {
-      await load();
-      setIsLoading(false);
-    })();
-  }, [load]);
+    openSeatingRef.current = openSeating;
+  }, [openSeating]);
+
+  useEffect(() => {
+    seasonIdRef.current = seasonId;
+  }, [seasonId]);
+
+  /**
+   * Re-reads the league whenever the screen is returned to.
+   *
+   * This screen used to load once and then never again, which made it the only
+   * one in the app that could sit indefinitely on data somebody else had already
+   * replaced. A member who expanded a meetup's seating and left it open kept that
+   * snapshot for as long as the screen stayed mounted: an organizer could redraw
+   * the tables from their own phone and the member would go on being shown the
+   * draw they were no longer in, with no way to tell and nothing to press.
+   *
+   * The seating is refreshed alongside the rest rather than left to be reopened,
+   * because it is the part most likely to have moved and the part whose staleness
+   * is least visible — a roster that is a week out of date looks like a roster.
+   *
+   * Focus, not an interval. The tables change a handful of times a season, and
+   * anybody who has navigated back to this screen is about to read it.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      (async () => {
+        await load();
+        if (!active) return;
+        setIsLoading(false);
+
+        // Both of these are quiet on failure for the same reason as `load`'s own
+        // tail: what is already on screen is better than replacing a league with
+        // an error because one of two follow-up reads did not land.
+        const season = seasonIdRef.current;
+        if (season) {
+          try {
+            const found = await fetchSessions(season);
+            if (active) setSessions(found);
+          } catch {
+            // Keep the meetups already shown.
+          }
+        }
+
+        const open = openSeatingRef.current;
+        if (open) {
+          try {
+            const fresh = await fetchSessionTables(open);
+            if (active) setTables(fresh);
+          } catch {
+            // Keep the seating already shown.
+          }
+        }
+      })();
+
+      return () => {
+        active = false;
+      };
+    }, [load])
+  );
 
   useEffect(() => {
     let active = true;
