@@ -47,7 +47,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:db": "for f in supabase/tests/*.test.sql; do psql \"postgresql://postgres:postgres@127.0.0.1:54322/postgres\" -v ON_ERROR_STOP=1 -f \"$f\" || exit 1; done"
   },
   "engines": {
     "node": ">=22"
