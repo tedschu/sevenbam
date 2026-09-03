@@ -28,6 +28,7 @@ import {
   signOut,
   updateMyProfile,
   type ExperienceLevel,
+  type SignInMethod,
 } from '@/lib/profile';
 
 type Draft = {
@@ -141,6 +142,12 @@ export default function ProfileScreen() {
   const theme = useTheme();
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  /**
+   * Which of the two ways in this account uses. Shown beside the email because that
+   * is where somebody looks when they are working out why a password will not work —
+   * and for a Google account the answer is that there is no password at all.
+   */
+  const [signInMethod, setSignInMethod] = useState<SignInMethod | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -164,9 +171,10 @@ export default function ProfileScreen() {
 
   const load = useCallback(async () => {
     try {
-      const { profile, email: accountEmail } = await fetchMyProfile();
+      const { profile, email: accountEmail, signInMethod: method } = await fetchMyProfile();
       setUserId(profile.id);
       setEmail(accountEmail);
+      setSignInMethod(method);
       setDraft({
         name: profile.name ?? '',
         phone: profile.phone ?? '',
@@ -346,7 +354,11 @@ export default function ProfileScreen() {
                 <ThemedText numberOfLines={1}>{email ?? '—'}</ThemedText>
               </View>
               <ThemedText type="small" themeColor="textSecondary">
-                How you sign in. Ask to have it changed if you need to.
+                {signInMethod === 'google'
+                  ? 'You sign in with Google, so this account has no password to change or forget. Ask to have the address changed if you need to.'
+                  : signInMethod === 'password'
+                    ? 'You sign in with this address and a password. Ask to have the address changed if you need to.'
+                    : 'How you sign in. Ask to have it changed if you need to.'}
               </ThemedText>
             </View>
 

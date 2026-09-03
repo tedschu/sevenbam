@@ -10,7 +10,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { describeAuthError, sendPasswordReset, signInWithGoogle } from '@/lib/auth';
+import {
+  describeAuthError,
+  linkErrorFromUrl,
+  sendPasswordReset,
+  signInWithGoogle,
+} from '@/lib/auth';
 import { describeMissing, type Intent } from '@/lib/credentials';
 import { supabase } from '@/lib/supabase';
 import { AnimatedIcon } from '@/components/animated-icon';
@@ -35,12 +40,29 @@ type Mode = Intent;
 
 export default function LoginScreen() {
   const theme = useTheme();
-  const [mode, setMode] = useState<Mode>('signIn');
+  /**
+   * A link that arrived dead opens this screen already asking for a new one. Landing
+   * on a plain login form after following a reset link reads as the link having
+   * quietly worked, which is how somebody ends up wondering why nothing happened.
+   */
+  const [linkError] = useState(() => linkErrorFromUrl());
+  const [mode, setMode] = useState<Mode>(linkError ? 'reset' : 'signIn');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(linkError);
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * Whether a sign-in has actually been turned away here.
+   *
+   * The reset link used to sit under the form from the first render, which put
+   * "Forgot your password?" in front of people who had not tried one yet — including
+   * everybody who signs in with Google and has no password to forget. One of them
+   * followed it and spent a support thread trying to reset a password that has never
+   * existed. It appears now when it has become the right question: after the password
+   * this member typed was refused.
+   */
+  const [signInRefused, setSignInRefused] = useState(false);
 
   const isSignUp = mode === 'signUp';
   const isReset = mode === 'reset';
@@ -75,7 +97,7 @@ export default function LoginScreen() {
         // Says the same thing whether or not the address has an account, so this
         // cannot be used to find out who is a member.
         setNotice(
-          `If there is an account for ${email.trim()}, a reset link is on its way. Open it in this browser — a link opened somewhere else cannot complete the reset.`
+          `If there is an account for ${email.trim()}, a reset link is on its way. Open it on any device — it will bring you back here to choose a new password.`
         );
       } else if (isSignUp) {
         const {
@@ -93,7 +115,12 @@ export default function LoginScreen() {
           email: email.trim(),
           password,
         });
-        if (error) setError(describeAuthError(error));
+        if (error) {
+          setError(describeAuthError(error));
+          // Only for a refusal, not for a rate limit or an outage: neither of those
+          // is answered by resetting anything.
+          if (error.code === 'invalid_credentials') setSignInRefused(true);
+        }
       }
     } catch (cause) {
       setError(describeAuthError(cause));
@@ -262,6 +289,17 @@ export default function LoginScreen() {
                   {error}
                 </ThemedText>
               ) : null}
+              {/* Before the button rather than after it, because it is the one thing
+                  that saves a wasted round trip. Deliberately worded at everybody:
+                  this screen cannot look an address up without becoming a way to find
+                  out who is a member and how they sign in. */}
+              {isReset ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  If you use the Continue with Google button, there is no password on
+                  your account to reset — go back and use it instead.
+                </ThemedText>
+              ) : null}
+
               {notice ? (
                 <ThemedText type="small" style={{ color: theme.accentInk }}>
                   {notice}
@@ -284,9 +322,10 @@ export default function LoginScreen() {
                 />
               ) : (
                 <>
-                  {/* Quietest control on the card, and only where it applies —
-                      somebody creating an account has no password to forget. */}
-                  {isSignUp ? null : (
+                  {/* Quietest control on the card, and only where it applies:
+                      somebody creating an account has no password to forget, and
+                      neither does anybody who has not yet been turned away. */}
+                  {isSignUp || !signInRefused ? null : (
                     <Pressable
                       onPress={() => go('reset')}
                       accessibilityRole="button"
