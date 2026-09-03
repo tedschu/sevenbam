@@ -1,3 +1,5 @@
+import type { User } from '@supabase/supabase-js';
+
 import { supabase } from './supabase';
 
 export const EXPERIENCE_LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
@@ -25,8 +27,47 @@ export type Profile = {
   experience_level: string | null;
 };
 
-/** The signed-in member's profile, plus the email held on their auth account. */
-export async function fetchMyProfile(): Promise<{ profile: Profile; email: string | null }> {
+/**
+ * How an account gets in.
+ *
+ * `google` means there is no password to forget: the account was created by Google
+ * and signs in through it. Worth naming on screen, because a member who does not know
+ * which of the two they are will ask for a reset link for a password that has never
+ * existed — a support conversation nobody can win.
+ */
+export type SignInMethod = 'google' | 'password';
+
+/**
+ * Read from the identities on the auth account rather than from
+ * `app_metadata.provider`, which reports only whichever one was used first and goes
+ * on reporting it afterwards.
+ */
+function signInMethodOf(user: User): SignInMethod {
+  const providers = (user.identities ?? []).map((identity) => identity.provider);
+  return providers.includes('google') && !providers.includes('email') ? 'google' : 'password';
+}
+
+/**
+ * The sign-in method of whoever is signed in right now.
+ *
+ * Separate from `fetchMyProfile` because the set-password screen needs this and
+ * nothing else: it runs before the tabs exist, on a session a recovery link has just
+ * handed over.
+ */
+export async function fetchMySignInMethod(): Promise<SignInMethod | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  return user ? signInMethodOf(user) : null;
+}
+
+/** The signed-in member's profile, plus the email and sign-in method on their auth account. */
+export async function fetchMyProfile(): Promise<{
+  profile: Profile;
+  email: string | null;
+  signInMethod: SignInMethod;
+}> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -51,6 +92,7 @@ export async function fetchMyProfile(): Promise<{ profile: Profile; email: strin
   return {
     profile: { ...directory.data, phone: contact.data?.phone ?? null },
     email: user.email ?? null,
+    signInMethod: signInMethodOf(user),
   };
 }
 

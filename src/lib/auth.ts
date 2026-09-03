@@ -4,7 +4,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
-import { supabase } from './supabase';
+import { landingHash, recoveryClient, supabase } from './supabase';
 
 /** Where someone goes when nothing on the screen helps them. */
 export const SupportEmail = 'sevenbamapp@gmail.com';
@@ -12,15 +12,92 @@ export const SupportEmail = 'sevenbamapp@gmail.com';
 /**
  * Marks that a password reset was requested from this browser.
  *
- * Exists because the recovery link cannot be recognised reliably any other way.
- * `PASSWORD_RECOVERY` is emitted while the client initialises, which happens when
- * `supabase.ts` is imported — before any component has mounted a listener, so the
- * event can be missed entirely on a cold load. The flag is read instead, and it has
- * deliberately the same lifetime as the thing that actually gates the exchange: the
- * PKCE verifier, which is also per-browser. The two therefore cannot disagree about
- * whether a recovery is in progress.
+ * A fallback now rather than the main signal. The link itself says what it is — see
+ * `passwordResetArrived` — which is the only thing that still works when the mail is
+ * opened somewhere other than where it was asked for. This flag covers native, where
+ * there is no URL for the app to read on the way in.
  */
 const ResetPendingKey = 'sevenbam.passwordResetPending';
+
+/**
+ * Reads what a recovery link left in the URL.
+ *
+ * The link comes back as `#access_token=…&type=recovery`, or, when it has expired or
+ * been spent already, as `#error=access_denied&error_code=otp_expired`. Both are read
+ * from the snapshot taken before the auth client wiped them.
+ */
+function landingParams() {
+  return new URLSearchParams(landingHash.replace(/^#/, ''));
+}
+
+/**
+ * Whether this page was opened by following a recovery link.
+ *
+ * Read from the URL rather than from storage, because the place a reset is asked for
+ * and the place the mail is opened are routinely different browsers. Read rather than
+ * listened for, because `PASSWORD_RECOVERY` is emitted while the client initialises —
+ * on import, before any component exists to hear it.
+ */
+export function passwordResetArrived() {
+  return landingParams().get('type') === 'recovery';
+}
+
+/**
+ * The reason a link failed, when it arrived carrying one.
+ *
+ * Worth surfacing because the alternative is what a member actually saw: an ordinary
+ * login screen, with no hint that the link they had just followed was the thing that
+ * had expired.
+ */
+export function linkErrorFromUrl(): string | null {
+  const params = landingParams();
+  const code = params.get('error_code');
+  if (!code) return null;
+
+  if (code === 'otp_expired')
+    return 'That reset link has expired or has already been used. Ask for a new one below.';
+
+  return (
+    params.get('error_description')?.replace(/\+/g, ' ') ??
+    'That link did not work. Ask for a new one below.'
+  );
+}
+
+/**
+ * Takes up the session a recovery link arrived with.
+ *
+ * Has to be done by hand. The main client is on PKCE, and `auth-js` refuses to read
+ * an implicit URL while it is — `_getSessionFromURL` throws "Not a valid PKCE flow
+ * url." and leaves whatever session was already there alone. That last part is the
+ * dangerous half: on a device already signed in, the tokens the link carried would be
+ * dropped on the floor and the member left looking at an ordinary signed-in app,
+ * which is the bug this whole change is about.
+ *
+ * So the tokens are read from the snapshot and installed deliberately. Installing
+ * rather than merging matters: the link is proof of who this is, and it has to win
+ * over whatever session the browser was already holding.
+ *
+ * The hash goes as soon as it has been spent, so a refresh or a shared URL does not
+ * carry a live token around.
+ */
+export async function adoptRecoverySession(): Promise<boolean> {
+  if (Platform.OS !== 'web' || !passwordResetArrived()) return false;
+
+  const params = landingParams();
+  const access_token = params.get('access_token');
+  const refresh_token = params.get('refresh_token');
+  if (!access_token || !refresh_token) return false;
+
+  const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+
+  if (typeof window !== 'undefined')
+    window.history.replaceState(window.history.state, '', window.location.pathname);
+
+  if (error) throw error;
+
+  await setResetPending(true);
+  return true;
+}
 
 async function setResetPending(pending: boolean) {
   try {
@@ -48,18 +125,18 @@ export async function isPasswordResetPending() {
  * because Google sign-in returns to exactly the same place — so this needs no new
  * dashboard configuration.
  *
- * The one thing worth knowing about this flow: the link has to be opened in **this
- * browser**. `flowType` is `pkce`, so requesting a reset stores a code verifier
- * locally and the returning link carries only half the pair. Opening the email on a
- * different device leaves the exchange with nothing to match against and it fails.
- * The screen says so, because the alternative is somebody concluding the link is
- * broken.
+ * Sent through `recoveryClient` rather than the main one, so the link works wherever
+ * it is opened. See the note on that client: the app's own sign-in stays on PKCE, and
+ * only recovery — the one flow that routinely changes device between the asking and
+ * the opening — leaves it.
  */
 export async function sendPasswordReset(email: string) {
   const redirectTo =
     Platform.OS === 'web' ? window.location.origin : Linking.createURL('/');
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+  const { error } = await recoveryClient.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo,
+  });
   if (error) throw error;
 
   await setResetPending(true);
@@ -116,8 +193,10 @@ export function describeAuthError(error: unknown): string {
 
     case 'invalid_credentials':
       // Deliberately does not say which half was wrong; that tells a stranger
-      // whether an address has an account.
-      return 'That email and password do not match an account. Check for a typo, or create an account below.';
+      // whether an address has an account. Google is named because this is also what
+      // a Google account gets when it tries a password it never set, and saying so
+      // here costs nothing: the same line is shown for every refusal alike.
+      return 'That email and password do not match an account. If you signed up with Google, use Continue with Google — that account has no password. Otherwise check for a typo, or create an account below.';
 
     case 'email_not_confirmed':
       return 'Your email address is not confirmed yet. Open the link in the confirmation email we sent, then sign in.';

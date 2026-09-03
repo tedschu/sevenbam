@@ -248,6 +248,15 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# The one email in the project with custom wording. It carries a line for members
+# who sign in with Google and have no password to reset — see the template, and the
+# note on the reset screen in src/app/login.tsx. Keep this in step with the same
+# template in the hosted project's dashboard, which is what production actually
+# sends; this block only covers the local stack.
+[auth.email.template.recovery]
+subject = "Reset your Seven Bam password"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"

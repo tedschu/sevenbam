@@ -22,7 +22,7 @@ import {
 } from '@/hooks/use-home-screen-prompt';
 import { clearAdminStatus, refreshAdminStatus } from '@/hooks/use-global-view';
 import { clearProfileSetup, refreshProfileSetup } from '@/hooks/use-profile-setup';
-import { isPasswordResetPending } from '@/lib/auth';
+import { adoptRecoverySession, isPasswordResetPending } from '@/lib/auth';
 import { syncMyAvatar } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
 import LoginScreen from './login';
@@ -65,12 +65,15 @@ export default function TabLayout() {
    *
    * Needed because the link itself signs them in, and a session is all this layout
    * normally looks at — so without this they would land in Browse having reset
-   * nothing, with the old password still working.
+   * nothing, with the old password still working. Which is exactly what a member
+   * reported: "it does not give me the chance to reset but just logs me in."
    *
-   * Read from storage rather than from the PASSWORD_RECOVERY event. That event is
-   * emitted while the client initialises, which happens on import, so a listener
-   * mounted here can miss it on a cold load. The event is honoured too, for the
-   * case where the app was already open.
+   * Decided from the link rather than from storage, because the URL is the only
+   * signal that survives the mail being opened on a different device from the one
+   * that asked for it. Storage is kept as a second look for native, where there is
+   * no URL to read. The PASSWORD_RECOVERY event is honoured too, for the case where
+   * the app was already open — it cannot be relied on alone, since it is emitted
+   * while the client initialises, on import, before any listener here exists.
    */
   const [recovering, setRecovering] = useState(false);
 
@@ -82,12 +85,24 @@ export default function TabLayout() {
       const fromUrl = inviteTokenFromUrl();
       if (fromUrl) await rememberPendingInvite(fromUrl);
 
+      // Before the session is read, not after: a recovery link brings its own
+      // session, and on a device already signed in as somebody it has to replace the
+      // one sitting in storage rather than lose to it.
+      let arrivedOnRecoveryLink = false;
+      try {
+        arrivedOnRecoveryLink = await adoptRecoverySession();
+      } catch {
+        // A link that will not open is reported by the login screen, which reads the
+        // same URL. Nothing to do here but carry on and let it say so.
+      }
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
       setSession(session);
-      if (session?.user && (await isPasswordResetPending())) setRecovering(true);
+      if (session?.user && (arrivedOnRecoveryLink || (await isPasswordResetPending())))
+        setRecovering(true);
       // Publishes this member's Google photo to their profile so the group can
       // see it on match cards. Once per session, not per screen.
       if (session?.user) {
