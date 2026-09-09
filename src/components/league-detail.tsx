@@ -103,6 +103,29 @@ function toTimestamp(date: string, time: string): string | null {
 }
 
 /**
+ * A season's meetups and this member's availability for them.
+ *
+ * The two are read together everywhere, because a meetup row shows the answer
+ * beside the date. Reading one without the other is not a partial screen, it is
+ * a wrong one: with no attendance loaded every meetup falls back to the default,
+ * and the default is Going — so a member who said they could not make it comes
+ * back to the league and finds the row saying they are coming. It saved; the
+ * screen simply never asked. They answer again, and the second answer is as
+ * invisible as the first.
+ */
+async function fetchSeasonMeetups(seasonId: string, userId: string) {
+  const sessions = await fetchSessions(seasonId);
+  // Never fatal: a league screen without its counts is still a league screen,
+  // and the meetups themselves have already arrived.
+  const attendance = await fetchSessionAttendance(
+    sessions.map((session) => session.id),
+    userId
+  ).catch(() => ({}));
+
+  return { sessions, attendance };
+}
+
+/**
  * Everything about one league: who is in it, the link that adds people, and the
  * season's meetups with the draw that seats everyone.
  */
@@ -305,8 +328,11 @@ export function LeagueDetail({
         const season = seasonIdRef.current;
         if (season) {
           try {
-            const found = await fetchSessions(season);
-            if (active) setSessions(found);
+            const found = await fetchSeasonMeetups(season, userId);
+            if (active) {
+              setSessions(found.sessions);
+              setAttendance_(found.attendance);
+            }
           } catch {
             // Keep the meetups already shown.
           }
@@ -326,7 +352,7 @@ export function LeagueDetail({
       return () => {
         active = false;
       };
-    }, [load])
+    }, [load, userId])
   );
 
   useEffect(() => {
@@ -334,13 +360,19 @@ export function LeagueDetail({
 
     (async () => {
       if (!seasonId) {
-        if (active) setSessions([]);
+        if (active) {
+          setSessions([]);
+          setAttendance_({});
+        }
         return;
       }
 
       try {
-        const found = await fetchSessions(seasonId);
-        if (active) setSessions(found);
+        const found = await fetchSeasonMeetups(seasonId, userId);
+        if (active) {
+          setSessions(found.sessions);
+          setAttendance_(found.attendance);
+        }
       } catch (cause) {
         if (active) {
           setError(cause instanceof Error ? cause.message : 'Could not load meetups.');
@@ -351,20 +383,13 @@ export function LeagueDetail({
     return () => {
       active = false;
     };
-  }, [seasonId]);
+  }, [seasonId, userId]);
 
   const reloadSessions = useCallback(async () => {
     if (!seasonId) return;
-    const found = await fetchSessions(seasonId);
-    setSessions(found);
-    // Never fatal: a league screen without its counts is still a league screen,
-    // and the meetups themselves have already arrived.
-    setAttendance_(
-      await fetchSessionAttendance(
-        found.map((session) => session.id),
-        userId
-      ).catch(() => ({}))
-    );
+    const found = await fetchSeasonMeetups(seasonId, userId);
+    setSessions(found.sessions);
+    setAttendance_(found.attendance);
   }, [seasonId, userId]);
 
   /**
