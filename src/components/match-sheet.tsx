@@ -38,7 +38,7 @@ import {
   updateMatch,
   type Match,
 } from '@/lib/matches';
-import { fetchPlaceLocation } from '@/lib/places';
+import { fetchPlaceDetails } from '@/lib/places';
 
 const DefaultTime = '7:00 pm';
 
@@ -103,6 +103,16 @@ export function MatchSheet({
   const [coordinates, setCoordinates] = useState<Coordinates | null>(
     match ? coordinatesOf(match) : null
   );
+  /**
+   * The venue's own clock, from the same Places lookup as the coordinates.
+   *
+   * Used only when this match turns into email — every screen renders a time in
+   * the reader's device zone, but a notification is composed by a function running
+   * in UTC and has no device to ask. Cleared with the coordinates when the venue is
+   * edited by hand, for the same reason: the previous venue's zone is worse than
+   * none, because the mail would print it as if it were checked.
+   */
+  const [timeZone, setTimeZone] = useState<string | null>(match?.time_zone ?? null);
   const [notes, setNotes] = useState(match?.notes ?? '');
   const [supplies, setSupplies] = useState(match?.supplies_provided ?? false);
   const [leagueId, setLeagueId] = useState<string | null>(match?.league_id ?? null);
@@ -161,6 +171,7 @@ export function MatchSheet({
       location_detail: locationDetail?.trim() || null,
       latitude: coordinates?.latitude ?? null,
       longitude: coordinates?.longitude ?? null,
+      time_zone: timeZone,
       notes: notes.trim() || null,
       supplies_provided: supplies,
       league_id: leagueId,
@@ -343,14 +354,19 @@ export function MatchSheet({
                 // position stale, and either one wrong is worse than none.
                 setLocationDetail(null);
                 setCoordinates(null);
+                setTimeZone(null);
               }}
               onSelectPlace={(suggestion) => {
                 setLocation(suggestion.mainText);
                 setLocationDetail(suggestion.secondaryText);
                 setCoordinates(null);
+                setTimeZone(null);
                 // Not awaited: the field should stay responsive, and the match is
-                // perfectly valid without a position.
-                fetchPlaceLocation(suggestion.placeId).then(setCoordinates);
+                // perfectly valid without either of these.
+                fetchPlaceDetails(suggestion.placeId).then((details) => {
+                  setCoordinates(details.location);
+                  setTimeZone(details.timeZone);
+                });
               }}
               placeholder="Where you are playing"
               hint="Pick a suggestion, or type anything — a living room is a venue too."

@@ -12,11 +12,22 @@ const AutocompleteUrl = 'https://places.googleapis.com/v1/places:autocomplete';
 const DetailsUrl = 'https://places.googleapis.com/v1/places';
 
 /**
- * Place Details asks for coordinates and nothing else, which keeps it on the
- * cheapest of the Details SKUs. Autocomplete cannot return a position, so this
- * second call is the only way to learn where a picked venue actually is.
+ * Place Details asks for the coordinates and the venue's time zone. Autocomplete
+ * can return neither, so this second call is the only way to learn where a picked
+ * venue actually is or what clock it runs on.
+ *
+ * The zone rides along on the request that was being made anyway — same call, same
+ * round trip, no separate Time Zone API to enable. Worth confirming against the
+ * Places billing page if Places ever becomes a real line item: `location` alone is
+ * the cheapest Details SKU, and adding a field is the kind of thing that can move
+ * it up one.
+ *
+ * Why it is needed at all: a match stores a `timestamptz`, and every screen in the
+ * app renders it in the reader's own device zone. Email has no reader's device — it
+ * is composed by a function running in UTC — so without this a 7pm game goes out as
+ * "12:00 AM UTC" to everybody invited to it.
  */
-const DetailsFieldMask = 'location';
+const DetailsFieldMask = 'location,timeZone';
 
 /** Google's ids are opaque but bounded; anything longer is not one. */
 const MaxPlaceId = 300;
@@ -69,7 +80,7 @@ function bad(status: number, error: string) {
 }
 
 /**
- * Resolves one place id to a latitude and longitude.
+ * Resolves one place id to a latitude, a longitude and a time zone.
  *
  * Called once when a member picks a suggestion, not per keystroke, so it adds a
  * single billable Details request per match created or town set.
@@ -97,19 +108,25 @@ async function lookupLocation(apiKey: string, placeId: string) {
 
   const payload = (await upstream.json()) as {
     location?: { latitude?: number; longitude?: number };
+    timeZone?: { id?: string };
   };
 
   const latitude = payload.location?.latitude;
   const longitude = payload.location?.longitude;
 
+  // Sent as its own field rather than folded into `location`, because the two
+  // genuinely come apart: a place can have a position and no zone, and the caller
+  // stores them on different columns for different reasons.
+  const timeZone = typeof payload.timeZone?.id === 'string' ? payload.timeZone.id : null;
+
   // A place with no position is not an error — some ids genuinely have none —
   // but it must not come back as a pair of zeros, which is a real spot in the
   // Atlantic. Null, and the caller stores nothing.
   if (typeof latitude !== 'number' || typeof longitude !== 'number') {
-    return Response.json({ location: null });
+    return Response.json({ location: null, timeZone });
   }
 
-  return Response.json({ location: { latitude, longitude } });
+  return Response.json({ location: { latitude, longitude }, timeZone });
 }
 
 /**

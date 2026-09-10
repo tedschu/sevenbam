@@ -72,6 +72,33 @@ function summarise(row: RankedRow) {
 }
 
 /**
+ * "Updated 8/8 by April Lane" — who to ask about a number that looks wrong.
+ *
+ * A total is the end of a chain nobody can see: four people at a table, one of
+ * them typing, an organizer correcting it a week later. When it is not what
+ * somebody remembers, the screen used to offer them nothing to do about it, so
+ * they either accepted a number they thought was wrong or asked the whole league.
+ *
+ * M/D rather than a full date, and no year: this is an annotation on a row, and
+ * every score anybody is still arguing about was entered this season.
+ *
+ * Silent when there is nothing to say — no games yet, or a score recorded before
+ * any of this was kept. A line reading "Updated by" with a blank after it would be
+ * worse than the absence.
+ */
+function provenance(row: RankedRow) {
+  if (!row.score_updated_at) return null;
+
+  const when = new Date(row.score_updated_at);
+  if (Number.isNaN(when.getTime())) return null;
+
+  const date = `${when.getMonth() + 1}/${when.getDate()}`;
+  return row.score_updated_by_name
+    ? `Updated ${date} by ${row.score_updated_by_name}`
+    : `Updated ${date}`;
+}
+
+/**
  * A row of the standings, set the way a hand and its value sit on the NMJL
  * card: the name on the left, the points right-aligned in the margin, and a
  * leader rule carrying the eye across the gap between them.
@@ -79,6 +106,7 @@ function summarise(row: RankedRow) {
 function StandingRow({ row, isCurrentUser }: { row: RankedRow; isCurrentUser: boolean }) {
   const theme = useTheme();
   const unplayed = row.games_played === 0;
+  const scoredBy = provenance(row);
 
   return (
     <ThemedView
@@ -119,6 +147,16 @@ function StandingRow({ row, isCurrentUser }: { row: RankedRow; isCurrentUser: bo
         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
           {summarise(row)}
         </ThemedText>
+        {/* Under the name rather than beside the numeral, which is where it
+            belongs by meaning and will not fit by measurement: "Updated 8/8 by
+            April Lane" is about 145px, and putting it in the points column would
+            take that column from 60px to 150 and crush the name on a phone. Here
+            it has the width the identity block already has. */}
+        {scoredBy ? (
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+            {scoredBy}
+          </ThemedText>
+        ) : null}
       </View>
 
       {/* Drawn from the secondary ink rather than the hairline rule colour, which is

@@ -28,7 +28,15 @@ import {
   loadCalendarSent,
   recordCalendarSent,
 } from '@/lib/calendar';
-import { fetchMyMatches, hasFinished, isSeated, leaveMatch, type Match } from '@/lib/matches';
+import {
+  enterMatchScores,
+  fetchMyMatches,
+  formatWhen,
+  hasFinished,
+  isSeated,
+  leaveMatch,
+  type Match,
+} from '@/lib/matches';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -503,16 +511,38 @@ export default function MatchesScreen() {
           />
         )}
 
-        <ScoreEntrySheet
-          key={scoringMatch?.id ?? 'none'}
-          match={scoringMatch}
-          visible={scoringMatch !== null}
-          onClose={() => setScoringMatchId(null)}
-          onSaved={async () => {
-            setScoringMatchId(null);
-            await load();
-          }}
-        />
+        {/* One table, which is the short case of the sheet the league screen opens
+            with a whole meetup in it. Same modal either way, so the two flows
+            cannot drift into two ideas of what a card is. */}
+        {scoringMatch ? (
+          <ScoreEntrySheet
+            key={scoringMatch.id}
+            tables={[
+              {
+                match_id: scoringMatch.id,
+                label: null,
+                seats: scoringMatch.players.map((player) => ({
+                  player_id: player.player_id,
+                  name: player.profile?.name ?? null,
+                  score: player.score,
+                })),
+              },
+            ]}
+            subtitle={`${scoringMatch.location} · ${formatWhen(scoringMatch.date_time)}`}
+            visible
+            onClose={() => setScoringMatchId(null)}
+            save={(entries) =>
+              enterMatchScores(
+                scoringMatch.id,
+                entries.map(({ player_id, score }) => ({ player_id, score }))
+              )
+            }
+            onSaved={async () => {
+              setScoringMatchId(null);
+              await load();
+            }}
+          />
+        ) : null}
 
         {/* Keyed on the match so the form is rebuilt from that match's details
             rather than keeping whatever the last one was edited to. */}

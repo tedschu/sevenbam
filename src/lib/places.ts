@@ -57,34 +57,44 @@ export async function searchPlaces(input: string, kind: PlaceKind): Promise<Plac
 }
 
 /**
- * Where a picked suggestion actually is.
+ * Where a picked place is, and what clock it runs on.
  *
- * A second call, because Places autocomplete returns no coordinates — only an
- * id. Made once when someone picks a place, not per keystroke.
+ * The zone matters for one thing only: email. Every screen in the app renders a
+ * time in the reader's own device zone, which is right and costs nothing — but a
+ * notification is composed by a function running in UTC, with no reader's device
+ * to ask, so without the venue's zone a 7pm game goes out as "12:00 AM UTC".
  *
- * Returns null rather than throwing for every failure mode, including a place
- * Google has no position for. Coordinates only power the distance filter on
- * Browse, and a match with none is still shown; losing them must never block
- * someone from proposing a game.
+ * Both halves are optional and come apart independently. A place can have a
+ * position and no zone; a venue typed by hand rather than picked has neither.
+ * Coordinates only power the distance filter on Browse, and the zone only changes
+ * how an email reads — neither is worth blocking somebody from proposing a game
+ * over, so every failure returns nulls rather than throwing.
  */
-export async function fetchPlaceLocation(
+export type PlaceDetails = {
+  latitude: number;
+  longitude: number;
+} | null;
+
+export async function fetchPlaceDetails(
   placeId: string
-): Promise<{ latitude: number; longitude: number } | null> {
-  if (missingKey || !placeId) return null;
+): Promise<{ location: PlaceDetails; timeZone: string | null }> {
+  const nothing = { location: null, timeZone: null };
+  if (missingKey || !placeId) return nothing;
 
   try {
     const { data, error } = await supabase.functions.invoke<{
       location: { latitude: number; longitude: number } | null;
+      timeZone: string | null;
     }>('places-autocomplete', { body: { placeId } });
 
     if (error) {
       const status = (error as { context?: { status?: number } }).context?.status;
       if (status === 501) missingKey = true;
-      return null;
+      return nothing;
     }
 
-    return data?.location ?? null;
+    return { location: data?.location ?? null, timeZone: data?.timeZone ?? null };
   } catch {
-    return null;
+    return nothing;
   }
 }

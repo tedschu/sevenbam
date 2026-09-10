@@ -24,6 +24,19 @@ export type LeaderboardRow = {
    * generated label rather than anything they chose, so the screen marks it.
    */
   deleted: boolean;
+  /**
+   * When this member's most recent score last changed, and who changed it.
+   *
+   * The end of a chain the screen otherwise hides: four people at a table, one of
+   * them typing, an organizer correcting it a week later. Without this, somebody
+   * whose total is not what they remember has nobody to ask — the number simply
+   * differs, and there is no way to tell a stale score from a wrong one.
+   *
+   * Null for a member with no games, and for scores recorded before any of this
+   * was kept.
+   */
+  score_updated_at: string | null;
+  score_updated_by_name: string | null;
 };
 
 /**
@@ -51,5 +64,7 @@ export async function fetchLeaderboard(): Promise<LeaderboardRow[]> {
     wins: row.wins ?? 0,
     average_placement: row.average_placement,
     deleted: row.deleted ?? false,
+    score_updated_at: row.score_updated_at,
+    score_updated_by_name: row.score_updated_by_name,
   }));
 }

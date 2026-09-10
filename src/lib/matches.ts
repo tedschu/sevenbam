@@ -3,13 +3,23 @@ import { supabase } from './supabase';
 /** Seats at a mahjong table. Mirrors public.match_seat_limit() in the database. */
 export const SEATS_PER_MATCH = 4;
 
+/**
+ * `profiles!player_id`, and it has to stay hinted.
+ *
+ * `match_players` gained a second reference to `profiles` when scores started
+ * recording who last entered them, and an embed naming only the table is ambiguous
+ * from that point on — PostgREST refuses it rather than guessing, and the request
+ * comes back as an error naming both candidates. The hint says which foreign key
+ * this join is about: the person in the seat, not the person who typed their
+ * number in.
+ */
 const MATCH_SELECT = `
   id, date_time, created_at, location, location_detail, notes, supplies_provided, status, host_id,
   needs_sub,
-  latitude, longitude, league_id, session_id, table_number,
+  latitude, longitude, time_zone, league_id, session_id, table_number,
   league:leagues (id, name, color),
   host:profiles!matches_host_id_fkey (id, name),
-  players:match_players (player_id, score, profile:profiles (id, name, avatar_url))
+  players:match_players (player_id, score, profile:profiles!player_id (id, name, avatar_url))
 `;
 
 export type Match = {
@@ -35,6 +45,8 @@ export type Match = {
    */
   latitude: number | null;
   longitude: number | null;
+  /** The venue's IANA zone. Read by the notification sender, not by any screen. */
+  time_zone: string | null;
   notes: string | null;
   supplies_provided: boolean | null;
   status: string | null;
@@ -291,6 +303,11 @@ export type NewMatch = {
    */
   latitude: number | null;
   longitude: number | null;
+  /**
+   * The venue's IANA zone, from the same Places lookup as the coordinates. Only
+   * ever read when this match becomes email — see `matches.time_zone`.
+   */
+  time_zone: string | null;
   notes: string | null;
   supplies_provided: boolean;
   league_id: string | null;
@@ -360,9 +377,13 @@ export async function joinMatch(matchId: string, userId: string) {
 
 /**
  * Record the card and close the match, in one server-side step. The database
- * checks that the caller hosts the match and that every seat has a score, so a
- * half-entered card can never close a match or leave someone on zero in the
- * standings. Safe to call again to correct a mistake.
+ * checks that every seat has a score, so a half-entered card can never close a
+ * match or leave someone on zero in the standings. Safe to call again to correct
+ * a mistake.
+ *
+ * Permitted to the host, and — since the tables at a league meetup are dealt to
+ * whoever the shuffle put first rather than to anybody who volunteered — to an
+ * organizer of the league the match belongs to.
  */
 export async function enterMatchScores(
   matchId: string,
@@ -374,6 +395,31 @@ export async function enterMatchScores(
   });
 
   if (error) throw error;
+}
+
+/**
+ * Record the cards for a whole meetup at once, and return how many tables were
+ * written.
+ *
+ * One call rather than one per table, because the transaction boundary is the
+ * point: an organizer typing sixteen numbers on a phone in a noisy room should
+ * not be able to end up with two tables counted, two ignored, and the standings
+ * settled somewhere in between.
+ *
+ * Tables not named in `scores` are left exactly as they were, so this is also how
+ * one card gets re-entered a week later without disturbing the other three.
+ */
+export async function enterSessionScores(
+  sessionId: string,
+  scores: { match_id: string; player_id: string; score: number }[]
+): Promise<number> {
+  const { data, error } = await supabase.rpc('enter_session_scores', {
+    p_session_id: sessionId,
+    p_scores: scores,
+  });
+
+  if (error) throw error;
+  return data ?? 0;
 }
 
 /**

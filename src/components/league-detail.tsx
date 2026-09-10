@@ -17,6 +17,8 @@ import { ContactRows } from '@/components/contact-rows';
 import { EmailGroupButton } from '@/components/email-group-button';
 import { Icon } from '@/components/icon';
 import { PlaceAutocompleteInput } from '@/components/place-autocomplete-input';
+import { ScoreEntrySheet } from '@/components/score-entry-sheet';
+import { TablePlacement } from '@/components/table-placement';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { CardShadow, LeagueColors, OnAccent, Radius, Spacing } from '@/constants/theme';
@@ -39,6 +41,7 @@ import {
   setLeagueArchived,
   setLeagueRole,
   updateLeagueVisibility,
+  setSessionSeating,
   updateSession,
   type LeagueFootprint,
   type LeagueMember,
@@ -67,8 +70,14 @@ import {
   type Recipient,
 } from '@/lib/contact';
 import { type Coordinates } from '@/lib/geo';
-import { formatTimeOfDay, formatWhen, parseTimeOfDay, SEATS_PER_MATCH } from '@/lib/matches';
-import { fetchPlaceLocation } from '@/lib/places';
+import {
+  enterSessionScores,
+  formatTimeOfDay,
+  formatWhen,
+  parseTimeOfDay,
+  SEATS_PER_MATCH,
+} from '@/lib/matches';
+import { fetchPlaceDetails } from '@/lib/places';
 import {
   describeMonthly,
   expandDates,
@@ -225,6 +234,24 @@ export function LeagueDetail({
    */
   const [openSeating, setOpenSeating] = useState<string | null>(null);
   const [tables, setTables] = useState<SessionTable[]>([]);
+  /**
+   * The meetup whose cards are being entered, and its tables.
+   *
+   * Held separately from `tables` above, which belongs to the expanded seating and
+   * would be emptied by collapsing it mid-entry. Fetched when the button is
+   * pressed rather than kept for every meetup on screen: a season is a dozen of
+   * them and this is wanted for one at a time.
+   */
+  /**
+   * The meetup whose tables are being rearranged by hand, if any.
+   *
+   * Kept as an id rather than a boolean so it cannot survive being opened on a
+   * different meetup: the editor holds a draft of one meetup's seating, and a
+   * flag would carry that draft onto the next one somebody expanded.
+   */
+  const [placing, setPlacing] = useState<string | null>(null);
+  const [scoringSession, setScoringSession] = useState<LeagueSession | null>(null);
+  const [scoringTables, setScoringTables] = useState<SessionTable[]>([]);
   const [sessionDetail, setSessionDetail] = useState<string | null>(null);
   const [sessionVenue, setSessionVenue] = useState('');
   /**
@@ -233,6 +260,14 @@ export function LeagueDetail({
    * be findable wants its meetups picked from the list rather than typed.
    */
   const [sessionAt, setSessionAt] = useState<Coordinates | null>(null);
+  /**
+   * The venue's own clock, resolved from the same lookup as the position.
+   *
+   * Copied onto every table by the draw, and read only when a meetup turns into
+   * email: the league screen renders times in the reader's device zone, which is
+   * right, but the notification sender runs in UTC and has no device to ask.
+   */
+  const [sessionZone, setSessionZone] = useState<string | null>(null);
 
   /**
    * What deleting would destroy. Read for organizers only, and only so the
@@ -441,6 +476,8 @@ export function LeagueDetail({
     if (openSeating === session.id) {
       setOpenSeating(null);
       setTables([]);
+      // An open editor holds a draft of the seating that is about to disappear.
+      setPlacing(null);
       return;
     }
 
@@ -454,6 +491,51 @@ export function LeagueDetail({
     } finally {
       setBusy(null);
     }
+  };
+
+  /**
+   * Open the card for a whole meetup.
+   *
+   * The tables are loaded here rather than assumed from the row, because the row
+   * knows only how many there are. What the sheet needs is who is sitting at each
+   * one and what is already recorded against them — and a card prefilled with the
+   * existing numbers is the difference between correcting one score and retyping
+   * sixteen.
+   *
+   * Empty tables are dropped. A drawn meetup can carry one if everybody at it
+   * dropped out, and a table with no seats is a heading with nothing under it.
+   */
+  const openScoring = async (session: LeagueSession) => {
+    setBusy(`scores-${session.id}`);
+    try {
+      const found = await fetchSessionTables(session.id);
+      setScoringTables(found.filter((table) => table.seats.length > 0));
+      setScoringSession(session);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not load the tables.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * Write a hand-made arrangement, and show it back.
+   *
+   * Both reloads matter and neither is optional. `fetchSessionTables` is what the
+   * seating on screen is drawn from, and without it the organizer saves, the
+   * editor closes, and the old arrangement is still sitting there — which reads as
+   * the save having failed. `reloadSessions` is for the row above it, where the
+   * count of tables can have changed by one.
+   *
+   * Awaited before the editor closes, so it never shuts onto stale seating.
+   */
+  const saveSeating = async (session: LeagueSession, arrangement: string[][]) => {
+    await setSessionSeating(session.id, arrangement);
+    setTables(await fetchSessionTables(session.id));
+    await reloadSessions();
+    setPlacing(null);
+    setError(null);
   };
 
   const toggleSubs = async (session: LeagueSession) => {
@@ -546,12 +628,14 @@ export function LeagueDetail({
           location_detail: sessionDetail,
           latitude: sessionAt?.latitude ?? null,
           longitude: sessionAt?.longitude ?? null,
+          time_zone: sessionZone,
         }))
       );
       setIsAddingSession(false);
       setSessionVenue('');
       setSessionDetail(null);
       setSessionAt(null);
+      setSessionZone(null);
       setSessionRepeat('once');
       setSessionUntil('');
       await reloadSessions();
@@ -591,6 +675,7 @@ export function LeagueDetail({
     // it did not just look up, and stale ones would put the meetup in the wrong
     // town. Re-picking the venue from the suggestions restores them.
     setSessionAt(null);
+    setSessionZone(null);
     setSessionRepeat('once');
     setError(null);
   };
@@ -600,6 +685,7 @@ export function LeagueDetail({
     setSessionVenue('');
     setSessionDetail(null);
     setSessionAt(null);
+    setSessionZone(null);
   };
 
   const saveSession = async () => {
@@ -617,6 +703,7 @@ export function LeagueDetail({
       location_detail: sessionDetail,
       latitude: sessionAt?.latitude ?? null,
       longitude: sessionAt?.longitude ?? null,
+      time_zone: sessionZone,
     };
 
     setBusy('session');
@@ -1328,12 +1415,17 @@ export function LeagueDetail({
                   setSessionVenue(next);
                   setSessionDetail(null);
                   setSessionAt(null);
+                  setSessionZone(null);
                 }}
                 onSelectPlace={(suggestion) => {
                   setSessionVenue(suggestion.mainText);
                   setSessionDetail(suggestion.secondaryText);
                   setSessionAt(null);
-                  fetchPlaceLocation(suggestion.placeId).then(setSessionAt);
+                  setSessionZone(null);
+                  fetchPlaceDetails(suggestion.placeId).then((details) => {
+                    setSessionAt(details.location);
+                    setSessionZone(details.timeZone);
+                  });
                 }}
                 placeholder="Where everyone meets"
                 kind="venue"
@@ -1378,9 +1470,51 @@ export function LeagueDetail({
           {sessions.map((session) => (
             <View key={session.id} style={[styles.sessionRow, { borderColor: theme.rule }]}>
               <View style={styles.sessionText}>
-                <ThemedText type="defaultSemiBold">
-                  {session.sequence}. {session.location}
-                </ThemedText>
+                {/* The venue, and beside it the one thing left to do about a
+                    meetup that has already happened.
+
+                    Here rather than in the icon column on the right, which is
+                    where the organizer's other controls are: those all act on a
+                    meetup that is still ahead — draw it, move it, open it to subs
+                    — and this one only ever appears once that has stopped being
+                    true. It also carries a word, because a glyph for "record the
+                    scores" is not a thing anybody has seen before and this is the
+                    action a season depends on being found.
+
+                    Offered from the hour of the meetup rather than from the end of
+                    it: nobody knows when a night finishes, and an organizer typing
+                    the card while the tables are still packing up is the case to
+                    design for. */}
+                <View style={styles.sessionTitleRow}>
+                  <ThemedText type="defaultSemiBold" style={styles.sessionTitle}>
+                    {session.sequence}. {session.location}
+                  </ThemedText>
+
+                  {canRun && isPast(session) && session.tables > 0 ? (
+                    <Pressable
+                      onPress={() => openScoring(session)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Add scores for ${session.location}`}
+                      style={({ pressed }) => pressed && styles.pressed}>
+                      <ThemedView
+                        type="backgroundElement"
+                        style={[styles.scoresChip, { borderColor: theme.rule }]}>
+                        {busy === `scores-${session.id}` ? (
+                          <ActivityIndicator size="small" />
+                        ) : (
+                          <Icon name="scorecard" color={theme.accentInk} size={14} />
+                        )}
+                        {/* `played` is true once *any* table is recorded, so a
+                            meetup with three cards in and one outstanding says
+                            "Edit scores" — which is right: the sheet opens on the
+                            three that are filled and the one that is not. */}
+                        <ThemedText type="label" style={{ color: theme.accentInk }}>
+                          {session.played ? 'Edit scores' : 'Add scores'}
+                        </ThemedText>
+                      </ThemedView>
+                    </Pressable>
+                  ) : null}
+                </View>
                 <ThemedText type="small" themeColor="textSecondary">
                   {formatWhen(session.date_time)}
                 </ThemedText>
@@ -1416,8 +1550,40 @@ export function LeagueDetail({
                   </Pressable>
                 )}
 
-                {openSeating === session.id ? (
+                {/* Rearranging the tables, in place of the read-only seating.
+                    Not beside it: two seating views on screen at once, one of
+                    which responds to taps, is how somebody edits the wrong one.
+                    Organizers only, and not once a table has been played — the
+                    database refuses that too, but a button that exists and is
+                    always refused is worse than one that is not there. */}
+                {openSeating === session.id && placing === session.id ? (
+                  <TablePlacement
+                    key={`placing-${session.id}`}
+                    tables={tables}
+                    tint={tint}
+                    onCancel={() => setPlacing(null)}
+                    onSave={(arrangement) => saveSeating(session, arrangement)}
+                  />
+                ) : null}
+
+                {openSeating === session.id && placing !== session.id ? (
                   <View style={styles.seating}>
+                    {canRun && !session.played ? (
+                      <Pressable
+                        onPress={() => setPlacing(session.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit table placement"
+                        style={({ pressed }) => pressed && styles.pressed}>
+                        <ThemedView
+                          type="backgroundElement"
+                          style={[styles.scoresChip, { borderColor: theme.rule, alignSelf: 'flex-start' }]}>
+                          <Icon name="pencil" color={theme.accentInk} size={14} />
+                          <ThemedText type="label" style={{ color: theme.accentInk }}>
+                            Edit table placement
+                          </ThemedText>
+                        </ThemedView>
+                      </Pressable>
+                    ) : null}
                     {tables.map((table) => {
                       const empty = Math.max(0, SEATS_PER_MATCH - table.seats.length);
                       return (
@@ -1784,6 +1950,38 @@ export function LeagueDetail({
           </ThemedText>
         </Pressable>
       )}
+
+      {/* The same sheet My Matches opens, handed the whole meetup instead of one
+          table. Keyed on the meetup so the drafts are rebuilt from what is
+          recorded rather than kept from the last one that was opened. */}
+      {scoringSession ? (
+        <ScoreEntrySheet
+          key={scoringSession.id}
+          tables={scoringTables.map((table) => ({
+            match_id: table.id,
+            // Named even when there is one, unlike My Matches: at a meetup the
+            // table number is how an organizer matches a paper card to a column of
+            // names, and a meetup that drew one table this week drew three last.
+            label: `Table ${table.table_number ?? '—'}`,
+            seats: table.seats.map((seat) => ({
+              player_id: seat.player_id,
+              name: seat.name,
+              score: seat.score,
+            })),
+          }))}
+          subtitle={`${scoringSession.location} · ${formatWhen(scoringSession.date_time)}`}
+          visible
+          onClose={() => setScoringSession(null)}
+          save={(entries) => enterSessionScores(scoringSession.id, entries).then(() => undefined)}
+          onSaved={async () => {
+            setScoringSession(null);
+            // The meetup row shows whether it has been played, and the seating
+            // shows which tables are done — both have just changed.
+            await reloadSessions();
+            await refreshSeating(scoringSession.id);
+          }}
+        />
+      ) : null}
     </ScrollView>
   );
 }
@@ -1947,6 +2145,29 @@ const styles = StyleSheet.create({
   },
   sessionText: {
     flex: 1,
+  },
+  /**
+   * Wraps, deliberately. "12. The Beer Cellar Glen Ellyn" and a chip do not fit
+   * across a phone, and letting the venue ellipsize to protect a button would hide
+   * the one word that tells two meetups apart.
+   */
+  sessionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  sessionTitle: {
+    flexShrink: 1,
+  },
+  scoresChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingVertical: 4,
+    paddingHorizontal: Spacing.two,
+    borderRadius: Radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   /** Ruled off from the meetups, because it explains them rather than being one. */
   legend: {

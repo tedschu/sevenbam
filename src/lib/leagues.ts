@@ -113,6 +113,9 @@ export type LeagueStanding = {
   average_placement: number | null;
   /** A closed account, kept in the standings for its results. See LeaderboardRow. */
   deleted: boolean;
+  /** Who last changed this member's most recent score, and when. See LeaderboardRow. */
+  score_updated_at: string | null;
+  score_updated_by_name: string | null;
 };
 
 /**
@@ -466,6 +469,12 @@ export type NewSession = {
   /** Written together or not at all; Browse measures a league's distance here. */
   latitude: number | null;
   longitude: number | null;
+  /**
+   * The venue's IANA zone, from the same Places lookup. Copied onto every table by
+   * the draw, and read only when a meetup becomes email — see
+   * `league_sessions.time_zone`.
+   */
+  time_zone: string | null;
 };
 
 export async function createSession(seasonId: string, session: NewSession): Promise<string> {
@@ -513,6 +522,7 @@ export async function updateSession(
     location_detail: string | null;
     latitude: number | null;
     longitude: number | null;
+    time_zone: string | null;
   }
 ): Promise<number> {
   const { data, error } = await supabase.rpc('update_league_session', {
@@ -520,11 +530,12 @@ export async function updateSession(
     p_date_time: fields.date_time,
     p_location: fields.location,
     // Cast because the type generator marks every argument non-null: Postgres does
-    // not record which parameters accept null, and all three of these do — a venue
-    // typed by hand has no address and no coordinates.
+    // not record which parameters accept null, and all four of these do — a venue
+    // typed by hand has no address, no coordinates and no zone.
     p_location_detail: fields.location_detail as string,
     p_latitude: fields.latitude as number,
     p_longitude: fields.longitude as number,
+    p_time_zone: fields.time_zone as string,
   });
 
   if (error) throw error;
@@ -539,7 +550,13 @@ export type SessionTable = {
   /** Offered to people outside the league by the organizer. */
   needs_sub: boolean;
   host_id: string;
-  seats: { player_id: string; name: string | null; avatar_url: string | null }[];
+  seats: {
+    player_id: string;
+    name: string | null;
+    avatar_url: string | null;
+    /** What is already recorded, so the score sheet opens on the card rather than on blanks. */
+    score: number | null;
+  }[];
 };
 
 /**
@@ -558,7 +575,7 @@ export async function fetchSessionTables(sessionId: string): Promise<SessionTabl
   const { data, error } = await supabase
     .from('matches')
     .select(
-      'id, table_number, status, needs_sub, host_id, players:match_players (player_id, profile:profiles (id, name, avatar_url))'
+      'id, table_number, status, needs_sub, host_id, players:match_players (player_id, score, profile:profiles!player_id (id, name, avatar_url))'
     )
     .eq('session_id', sessionId)
     .order('table_number');
@@ -574,14 +591,44 @@ export async function fetchSessionTables(sessionId: string): Promise<SessionTabl
     seats: (
       (row.players ?? []) as {
         player_id: string;
+        score: number | null;
         profile: { id: string; name: string | null; avatar_url: string | null } | null;
       }[]
     ).map((seat) => ({
       player_id: seat.player_id,
       name: seat.profile?.name ?? null,
       avatar_url: seat.profile?.avatar_url ?? null,
+      score: seat.score,
     })),
   }));
+}
+
+/**
+ * Write a meetup's seating as the organizer arranged it.
+ *
+ * Takes the whole arrangement rather than one move, because the organizer is
+ * rearranging a room and a sequence of single moves has no valid state in the
+ * middle: swapping two people is two moves, and between them somebody is at two
+ * tables or at none. One call, one transaction.
+ *
+ * The order within a table matters — whoever is first hosts it, and the host is
+ * who the scores hang off. The editor keeps positions across a swap for that
+ * reason.
+ *
+ * Returns the number of tables that ended up in the meetup, which may be fewer
+ * than were sent: tables nobody is at are dropped.
+ */
+export async function setSessionSeating(
+  sessionId: string,
+  tables: string[][]
+): Promise<number> {
+  const { data, error } = await supabase.rpc('set_session_seating', {
+    p_session_id: sessionId,
+    p_tables: tables,
+  });
+
+  if (error) throw error;
+  return (data as number) ?? 0;
 }
 
 export async function deleteSession(sessionId: string) {
@@ -633,6 +680,8 @@ export async function fetchLeagueStandings(leagueId: string): Promise<LeagueStan
     wins: row.wins ?? 0,
     average_placement: row.average_placement,
     deleted: row.deleted ?? false,
+    score_updated_at: row.score_updated_at,
+    score_updated_by_name: row.score_updated_by_name,
   }));
 }
 

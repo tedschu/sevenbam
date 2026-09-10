@@ -5,6 +5,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   TextInput,
   View,
 } from 'react-native';
@@ -20,7 +21,13 @@ import { BottomTabInset, MaxContentWidth, Radius, Spacing } from '@/constants/th
 import { useTheme } from '@/hooks/use-theme';
 import { refreshProfileSetup, useNeedsProfileSetup } from '@/hooks/use-profile-setup';
 import { coordinatesOf, type Coordinates } from '@/lib/geo';
-import { fetchPlaceLocation } from '@/lib/places';
+import {
+  AllOn,
+  fetchMyNotificationSettings,
+  updateMyNotificationSettings,
+  type NotificationSettings,
+} from '@/lib/notifications';
+import { fetchPlaceDetails } from '@/lib/places';
 import {
   deleteMyAccount,
   EXPERIENCE_LEVELS,
@@ -76,6 +83,38 @@ function Field({
           {hint}
         </ThemedText>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * One email switch, with the sentence that says what it turns off underneath.
+ *
+ * The label is written as the mail itself rather than as a category — "when a game
+ * you are in has four players", not "Game notifications" — because the only
+ * question anybody is answering here is whether they want to receive that
+ * particular thing. A category name makes them guess.
+ */
+function AlertRow({
+  label,
+  detail,
+  value,
+  onValueChange,
+}: {
+  label: string;
+  detail: string;
+  value: boolean;
+  onValueChange: (next: boolean) => void;
+}) {
+  return (
+    <View style={styles.alertRow}>
+      <View style={styles.alertText}>
+        <ThemedText type="smallBold">{label}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          {detail}
+        </ThemedText>
+      </View>
+      <Switch value={value} onValueChange={onValueChange} />
     </View>
   );
 }
@@ -168,11 +207,24 @@ export default function ProfileScreen() {
    * picked, and are dropped whenever the town is edited by hand.
    */
   const [home, setHome] = useState<Coordinates | null>(null);
+  /**
+   * Which emails this member still wants.
+   *
+   * Kept out of `draft` on purpose: these save on the tap rather than on Save
+   * profile. A switch that silently needs a second button pressed is how somebody
+   * ends up believing they unsubscribed and still receiving mail — and the one
+   * thing a preference like this has to be is believed.
+   */
+  const [alerts, setAlerts] = useState<NotificationSettings>(AllOn);
 
   const load = useCallback(async () => {
     try {
       const { profile, email: accountEmail, signInMethod: method } = await fetchMyProfile();
       setUserId(profile.id);
+      // Never fatal. The rest of this screen is worth showing to somebody whose
+      // switches would not load, and the defaults match what the database assumes
+      // for a row it cannot read.
+      setAlerts(await fetchMyNotificationSettings(profile.id).catch(() => AllOn));
       setEmail(accountEmail);
       setSignInMethod(method);
       setDraft({
@@ -235,6 +287,29 @@ export default function ProfileScreen() {
   const set = (key: keyof Draft) => (next: string) => {
     setDraft((current) => ({ ...current, [key]: next }));
     setStatus(null);
+  };
+
+  /**
+   * Optimistic, and reverted if the write fails.
+   *
+   * A switch that lags a tap reads as broken and gets tapped again, which is how
+   * somebody turns a setting off and back on without meaning to. Showing the new
+   * position immediately and putting it back on failure is the same bargain the
+   * league screen makes for opening a meetup to subs.
+   */
+  const setAlert = (key: keyof NotificationSettings) => async (next: boolean) => {
+    if (!userId) return;
+
+    const before = alerts;
+    setAlerts({ ...alerts, [key]: next });
+    setStatus(null);
+    try {
+      await updateMyNotificationSettings(userId, { [key]: next });
+      setError(null);
+    } catch (cause) {
+      setAlerts(before);
+      setError(cause instanceof Error ? cause.message : 'Could not change your email alerts.');
+    }
   };
 
   /**
@@ -322,7 +397,9 @@ export default function ProfileScreen() {
                 setHome(null);
                 // Not awaited: the field stays responsive, and a profile without
                 // coordinates is perfectly valid — it just cannot sort by distance.
-                fetchPlaceLocation(suggestion.placeId).then(setHome);
+                // Coordinates only. A member's home town sorts Browse by distance; it is
+                // not a venue and nothing is ever scheduled against its clock.
+                fetchPlaceDetails(suggestion.placeId).then(({ location }) => setHome(location));
               }}
               placeholder="Where you play from"
               hint="Worth adding — pick a suggestion and Browse will show you the closest tables first."
@@ -430,6 +507,44 @@ export default function ProfileScreen() {
                   );
                 })}
               </View>
+            </View>
+
+            {/* Email alerts.
+
+                On the page rather than behind a Disclosure, and above Save rather
+                than beside Sign out, because the moment somebody comes looking for
+                this they are annoyed — they have had mail they did not want and
+                they are hunting for the switch. Anything they have to open first
+                is a step taken while already irritated, and the alternative to
+                finding it here is marking us as spam.
+
+                Both are on for everybody until they say otherwise, which is what
+                the database assumes too. Every one of these emails also carries its
+                own unsubscribe link, so this screen is the second way to get here,
+                not the only one. */}
+            <View style={styles.field}>
+              <ThemedText type="label" themeColor="textSecondary">
+                Email alerts
+              </ThemedText>
+              <View style={[styles.alerts, { borderColor: theme.rule }]}>
+                <AlertRow
+                  label="When a game is on"
+                  detail="A game you are in reaches four players."
+                  value={alerts.game_is_on}
+                  onValueChange={setAlert('game_is_on')}
+                />
+                <View style={[styles.alertRule, { backgroundColor: theme.rule }]} />
+                <AlertRow
+                  label="When somebody drops out"
+                  detail="Someone can't make a game you are in, and a seat has opened up."
+                  value={alerts.someone_drops_out}
+                  onValueChange={setAlert('someone_drops_out')}
+                />
+              </View>
+              <ThemedText type="small" themeColor="textSecondary">
+                These save as you tap them. Emails about your own account, like
+                resetting a password, are not affected.
+              </ThemedText>
             </View>
 
             {error ? (
@@ -604,6 +719,25 @@ const styles = StyleSheet.create({
   disclosureBody: {
     gap: Spacing.three,
     paddingTop: Spacing.three,
+  },
+  /** One card holding both switches, so they read as one setting with two parts. */
+  alerts: {
+    borderRadius: Radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  alertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    padding: Spacing.three,
+  },
+  alertText: {
+    flex: 1,
+    gap: 2,
+  },
+  alertRule: {
+    height: StyleSheet.hairlineWidth,
   },
   chips: {
     flexDirection: 'row',

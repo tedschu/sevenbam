@@ -138,6 +138,7 @@ export type Database = {
           longitude: number | null
           season_id: string
           sequence: number
+          time_zone: string | null
         }
         Insert: {
           created_at?: string
@@ -149,6 +150,7 @@ export type Database = {
           longitude?: number | null
           season_id: string
           sequence: number
+          time_zone?: string | null
         }
         Update: {
           created_at?: string
@@ -160,6 +162,7 @@ export type Database = {
           longitude?: number | null
           season_id?: string
           sequence?: number
+          time_zone?: string | null
         }
         Relationships: [
           {
@@ -235,18 +238,24 @@ export type Database = {
           match_id: string
           player_id: string
           score: number | null
+          score_updated_at: string | null
+          score_updated_by: string | null
         }
         Insert: {
           joined_at?: string
           match_id: string
           player_id: string
           score?: number | null
+          score_updated_at?: string | null
+          score_updated_by?: string | null
         }
         Update: {
           joined_at?: string
           match_id?: string
           player_id?: string
           score?: number | null
+          score_updated_at?: string | null
+          score_updated_by?: string | null
         }
         Relationships: [
           {
@@ -277,6 +286,27 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "match_players_score_updated_by_fkey"
+            columns: ["score_updated_by"]
+            isOneToOne: false
+            referencedRelation: "leaderboard"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "match_players_score_updated_by_fkey"
+            columns: ["score_updated_by"]
+            isOneToOne: false
+            referencedRelation: "league_standings"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "match_players_score_updated_by_fkey"
+            columns: ["score_updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       matches: {
@@ -296,6 +326,7 @@ export type Database = {
           status: string | null
           supplies_provided: boolean | null
           table_number: number | null
+          time_zone: string | null
         }
         Insert: {
           created_at?: string
@@ -313,6 +344,7 @@ export type Database = {
           status?: string | null
           supplies_provided?: boolean | null
           table_number?: number | null
+          time_zone?: string | null
         }
         Update: {
           created_at?: string
@@ -330,6 +362,7 @@ export type Database = {
           status?: string | null
           supplies_provided?: boolean | null
           table_number?: number | null
+          time_zone?: string | null
         }
         Relationships: [
           {
@@ -373,6 +406,155 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "session_attendance_summary"
             referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      notification_outbox: {
+        Row: {
+          attempts: number
+          created_at: string
+          id: string
+          kind: string
+          last_error: string | null
+          match_id: string | null
+          recipient_id: string
+          sent_at: string | null
+          session_id: string | null
+          subject_id: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          kind: string
+          last_error?: string | null
+          match_id?: string | null
+          recipient_id: string
+          sent_at?: string | null
+          session_id?: string | null
+          subject_id: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          kind?: string
+          last_error?: string | null
+          match_id?: string | null
+          recipient_id?: string
+          sent_at?: string | null
+          session_id?: string | null
+          subject_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_outbox_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "leaderboard"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "league_standings"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "league_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "session_attendance_summary"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "leaderboard"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "league_standings"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_settings: {
+        Row: {
+          game_is_on: boolean
+          profile_id: string
+          someone_drops_out: boolean
+          unsubscribe_token: string
+          updated_at: string
+        }
+        Insert: {
+          game_is_on?: boolean
+          profile_id: string
+          someone_drops_out?: boolean
+          unsubscribe_token?: string
+          updated_at?: string
+        }
+        Update: {
+          game_is_on?: boolean
+          profile_id?: string
+          someone_drops_out?: boolean
+          unsubscribe_token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_settings_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "leaderboard"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "notification_settings_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "league_standings"
+            referencedColumns: ["player_id"]
+          },
+          {
+            foreignKeyName: "notification_settings_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -549,6 +731,8 @@ export type Database = {
           games_played: number | null
           name: string | null
           player_id: string | null
+          score_updated_at: string | null
+          score_updated_by_name: string | null
           total_points: number | null
           wins: number | null
         }
@@ -564,6 +748,8 @@ export type Database = {
           league_id: string | null
           name: string | null
           player_id: string | null
+          score_updated_at: string | null
+          score_updated_by_name: string | null
           total_points: number | null
           wins: number | null
         }
@@ -574,6 +760,43 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "leagues"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      pending_notifications: {
+        Row: {
+          attempts: number | null
+          created_at: string | null
+          date_time: string | null
+          expected_tables: number | null
+          going: number | null
+          host_name: string | null
+          id: string | null
+          kind: string | null
+          league_name: string | null
+          location: string | null
+          location_detail: string | null
+          recipient_email: string | null
+          recipient_name: string | null
+          session_id: string | null
+          subject_name: string | null
+          time_zone: string | null
+          unsubscribe_token: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_outbox_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "league_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "session_attendance_summary"
+            referencedColumns: ["session_id"]
           },
         ]
       }
@@ -596,13 +819,30 @@ export type Database = {
         Returns: undefined
       }
       anonymous_player_name: { Args: { p_profile_id: string }; Returns: string }
+      apply_match_scores: {
+        Args: { p_match_id: string; p_scores: Json }
+        Returns: undefined
+      }
       assert_leagues_have_a_successor: { Args: never; Returns: undefined }
       delete_league: { Args: { p_league_id: string }; Returns: undefined }
       delete_my_account: { Args: never; Returns: undefined }
+      drain_notification_outbox: { Args: never; Returns: undefined }
       draw_league_session: { Args: { p_session_id: string }; Returns: number }
+      enqueue_dropout: {
+        Args: { p_match: string; p_session: string; p_subject: string }
+        Returns: undefined
+      }
+      enqueue_match_notice: {
+        Args: { p_kind: string; p_match: string; p_subject: string }
+        Returns: undefined
+      }
       enter_match_scores: {
         Args: { p_match_id: string; p_scores: Json }
         Returns: undefined
+      }
+      enter_session_scores: {
+        Args: { p_scores: Json; p_session_id: string }
+        Returns: number
       }
       is_admin: { Args: never; Returns: boolean }
       is_league_member: { Args: { p_league: string }; Returns: boolean }
@@ -641,6 +881,7 @@ export type Database = {
       }
       match_seat_limit: { Args: never; Returns: number }
       new_invite_token: { Args: never; Returns: string }
+      notifiable_pickup_match: { Args: { p_match: string }; Returns: boolean }
       open_session_to_subs: {
         Args: { p_open: boolean; p_session_id: string }
         Returns: number
@@ -667,6 +908,14 @@ export type Database = {
         Args: { p_session_id: string; p_status: string }
         Returns: number
       }
+      set_session_seating: {
+        Args: { p_session_id: string; p_tables: Json }
+        Returns: number
+      }
+      unsubscribe_by_token: {
+        Args: { p_switch: string; p_token: string }
+        Returns: boolean
+      }
       update_league_session: {
         Args: {
           p_date_time: string
@@ -675,8 +924,13 @@ export type Database = {
           p_location_detail: string
           p_longitude: number
           p_session_id: string
+          p_time_zone: string
         }
         Returns: number
+      }
+      wants_notice: {
+        Args: { p_kind: string; p_profile: string }
+        Returns: boolean
       }
     }
     Enums: {
