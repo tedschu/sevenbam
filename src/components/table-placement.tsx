@@ -28,6 +28,57 @@ type Seat = { player_id: string; name: string | null; avatar_url: string | null 
  * reachable — there is no empty chair to drop into, so the way in is to trade
  * with somebody who is already there, which is also how it works in the room.
  */
+/**
+ * One move, as a new arrangement.
+ *
+ * Pure and exported so it can be reasoned about on its own, which it earned: the
+ * first version of this treated a swap as two independent rewrites, one of the
+ * table somebody left and one of the table they arrived at. That is correct right
+ * up until both are the same table, at which point they are the same array — the
+ * first rewrite puts the other player in twice, and the second replaces every copy
+ * of them with the person who moved. Two of you, none of them, and a save the
+ * database refuses.
+ *
+ * It is also the commonest move there is. A league of four is one table, and every
+ * swap anybody in it can make goes down this path.
+ *
+ * Positions are written by index for that reason. A swap is one exchange of two
+ * slots whether or not they are in the same array, and indices cannot alias the
+ * way a predicate over player ids can.
+ */
+export function moveSeat(
+  tables: Seat[][],
+  picked: string,
+  toTable: number,
+  onto: string | null
+): Seat[][] {
+  const from = tables.findIndex((seats) => seats.some((seat) => seat.player_id === picked));
+  if (from === -1 || !tables[toTable]) return tables;
+
+  const next = tables.map((seats) => [...seats]);
+  const fromIndex = next[from].findIndex((seat) => seat.player_id === picked);
+  if (fromIndex === -1) return tables;
+
+  if (onto && onto !== picked) {
+    const ontoIndex = next[toTable].findIndex((seat) => seat.player_id === onto);
+    if (ontoIndex === -1) return tables;
+
+    // Each keeps the other's position, so a swap does not quietly reorder a table
+    // and hand the scorecard to somebody who did not ask for it.
+    const moving = next[from][fromIndex];
+    next[from][fromIndex] = next[toTable][ontoIndex];
+    next[toTable][ontoIndex] = moving;
+    return next;
+  }
+
+  if (from === toTable) return tables;
+  if (next[toTable].length >= SEATS_PER_MATCH) return tables;
+
+  const [moving] = next[from].splice(fromIndex, 1);
+  next[toTable].push(moving);
+  return next;
+}
+
 export function TablePlacement({
   tables,
   tint,
@@ -76,29 +127,7 @@ export function TablePlacement({
       return;
     }
 
-    setDraft((current) => {
-      const next = current.map((seats) => [...seats]);
-      const moving = next[from].find((seat) => seat.player_id === picked);
-      if (!moving) return current;
-
-      if (onto && onto !== picked) {
-        const other = next[toTable].find((seat) => seat.player_id === onto);
-        if (!other) return current;
-
-        // A straight trade. Each keeps the other's position, so a swap does not
-        // quietly reorder a table and change who hosts it.
-        next[from] = next[from].map((seat) => (seat.player_id === picked ? other : seat));
-        next[toTable] = next[toTable].map((seat) => (seat.player_id === onto ? moving : seat));
-        return next;
-      }
-
-      if (next[toTable].length >= SEATS_PER_MATCH) return current;
-
-      next[from] = next[from].filter((seat) => seat.player_id !== picked);
-      next[toTable] = [...next[toTable], moving];
-      return next;
-    });
-
+    setDraft((current) => moveSeat(current, picked, toTable, onto));
     setPicked(null);
     setError(null);
   };

@@ -153,7 +153,11 @@ function StandingRow({ row, isCurrentUser }: { row: RankedRow; isCurrentUser: bo
             take that column from 60px to 150 and crush the name on a phone. Here
             it has the width the identity block already has. */}
         {scoredBy ? (
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            numberOfLines={1}
+            style={styles.provenance}>
             {scoredBy}
           </ThemedText>
         ) : null}
@@ -426,6 +430,20 @@ const styles = StyleSheet.create({
    * for. `minWidth: 0` is already RNW's default for a View and is stated here only
    * so the shrink does not depend on that.
    */
+  /**
+   * Quieter than the summary line above it, which is the point: this is a
+   * footnote about where a number came from, not part of what the row says.
+   *
+   * Lightened with opacity rather than a paler ink, because "lighter" means the
+   * opposite thing in the two themes — a fixed grey that recedes on white would
+   * come forward on the dark ground. Opacity moves it toward whatever the
+   * background happens to be, so it reads as the same step back in both.
+   */
+  provenance: {
+    fontSize: 12,
+    lineHeight: 16,
+    opacity: 0.75,
+  },
   identity: {
     flexShrink: 1,
     minWidth: 0,
