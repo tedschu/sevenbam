@@ -1,11 +1,10 @@
-import { StyleSheet, View } from 'react-native';
+import { Text, View } from 'react-native';
 
-import { SolidButton } from '@/components/button';
+import { GradientButton } from '@/components/kit/controls';
+import { LeagueDot } from '@/components/kit/layout';
 import { MapLink } from '@/components/match-detail-sheet';
-import { Sheet, SheetFooter, SheetSection, SheetTitle } from '@/components/sheet';
-import { ThemedText } from '@/components/themed-text';
-import { LeagueColors, Spacing, type LeagueColor } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Sheet, SheetFooter, SheetHeader, SheetSection } from '@/components/kit/sheet';
+import { colors, leagueEdge, text } from '@/constants/design';
 import { formatMiles } from '@/lib/geo';
 import type { PublicLeague } from '@/lib/leagues';
 import { canMap, openMap } from '@/lib/maps';
@@ -40,8 +39,7 @@ export function PublicLeagueSheet({
   onClose: () => void;
   onJoin: () => void;
 }) {
-  const theme = useTheme();
-  const tint = LeagueColors[league.color as LeagueColor] ?? theme.accent;
+  const tint = leagueEdge(league.color);
   const full = league.seats_left !== null && league.seats_left <= 0;
   /** The next meetup shaped as somewhere mappable, which is all `openMap` wants. */
   const meetup = {
@@ -53,27 +51,25 @@ export function PublicLeagueSheet({
 
   return (
     <Sheet visible={visible} onClose={onClose}>
-      <SheetTitle
+      <SheetHeader
         title={league.name}
         onClose={onClose}
         eyebrow={
-          <View style={styles.tag}>
-            <View style={[styles.dot, { backgroundColor: tint }]} />
-            <ThemedText type="label" style={{ color: theme.accentAltInk }}>
-              League
-            </ThemedText>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <LeagueDot color={tint} />
+            <Text style={[text.meta, { color: colors.link }]}>League</Text>
           </View>
         }
       />
 
       <SheetSection title="Members">
-        <ThemedText type="defaultSemiBold">
+        <Text style={[text.bodyStrong, { color: colors.ink }]}>
           {league.member_count} {league.member_count === 1 ? 'member' : 'members'}
-        </ThemedText>
+        </Text>
         {/* Null seats_left means the organizer set no cap, which is not the same as
             knowing how many are free — so it says that rather than a number it does
             not have. */}
-        <ThemedText type="small" themeColor="textSecondary">
+        <Text style={[text.meta, { color: colors.inkMuted }]}>
           {league.seats_left === null
             ? 'No member limit set.'
             : full
@@ -81,74 +77,55 @@ export function PublicLeagueSheet({
               : `${league.seats_left} ${league.seats_left === 1 ? 'seat' : 'seats'} left of ${
                   league.max_members
                 }.`}
-        </ThemedText>
+        </Text>
         {league.is_member ? (
-          <ThemedText type="small" style={{ color: theme.accentAltInk }}>
-            You are already in this league.
-          </ThemedText>
+          <Text style={[text.meta, { color: colors.link }]}>You are already in this league.</Text>
         ) : (
-          <ThemedText type="small" themeColor="textSecondary">
-            Who is in it is visible to members.
-          </ThemedText>
+          <Text style={[text.meta, { color: colors.inkMuted }]}>Who is in it is visible to members.</Text>
         )}
       </SheetSection>
 
       <SheetSection title="Next meetup">
         {league.next_meetup ? (
           <>
-            <ThemedText type="defaultSemiBold">{formatFullWhen(league.next_meetup)}</ThemedText>
+            <Text style={[text.bodyStrong, { color: colors.ink }]}>
+              {formatFullWhen(league.next_meetup)}
+            </Text>
             {league.next_location ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                {league.next_location}
-              </ThemedText>
+              <Text style={[text.meta, { color: colors.inkMuted }]}>{league.next_location}</Text>
             ) : null}
             {league.next_location_detail ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                {league.next_location_detail}
-              </ThemedText>
+              <Text style={[text.meta, { color: colors.inkMuted }]}>{league.next_location_detail}</Text>
             ) : null}
             {typeof distance === 'number' ? (
-              <ThemedText type="small" style={{ color: theme.accentInk }}>
-                {formatMiles(distance)}
-              </ThemedText>
+              <Text style={[text.meta, { color: colors.link }]}>{formatMiles(distance)}</Text>
             ) : null}
-            {canMap(meetup) ? <MapLink onPress={() => openMap(meetup)} /> : null}
+            {canMap(meetup) ? (
+              <MapLink onPress={() => openMap(meetup)} style={{ marginTop: 8 }} />
+            ) : null}
           </>
         ) : (
-          <ThemedText type="small" themeColor="textSecondary">
+          <Text style={[text.meta, { color: colors.inkMuted }]}>
             Nothing on the calendar yet. The organizer sets the meetups, and they show
             up in My Matches once the tables are drawn.
-          </ThemedText>
+          </Text>
         )}
       </SheetSection>
 
       {/* The part a card has no room for and nobody should have to infer. */}
       <SheetSection title="How a league works">
-        <ThemedText type="small" themeColor="textSecondary">
+        <Text style={[text.meta, { color: colors.inkMuted }]}>
           Meetups are scheduled by the organizer, and the tables are drawn — you are
           seated with different people each time rather than picking a seat. Every
           table you play counts toward the league&apos;s own standings.
-        </ThemedText>
+        </Text>
       </SheetSection>
 
       {league.is_member || full ? null : (
         <SheetFooter>
-          <SolidButton label="Join league" onPress={onJoin} busy={busy} wide />
+          <GradientButton label="Join league" onPress={onJoin} busy={busy} style={{ flex: 1 }} />
         </SheetFooter>
       )}
     </Sheet>
   );
 }
-
-const styles = StyleSheet.create({
-  tag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-});

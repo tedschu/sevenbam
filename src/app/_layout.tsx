@@ -1,4 +1,10 @@
-import { Poppins_600SemiBold, useFonts } from '@expo-google-fonts/poppins';
+import {
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+  Poppins_700Bold,
+  useFonts,
+} from '@expo-google-fonts/poppins';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useColorScheme } from 'react-native';
@@ -58,7 +64,18 @@ async function redeemInvite(userId: string) {
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const [session, setSession] = useState<Session | null>(null);
-  const [fontsLoaded] = useFonts({ Poppins_600SemiBold });
+  /**
+   * Four weights, not one. The redesign sets body copy in Poppins too, and its
+   * type scale picks a weight with `fontFamily` rather than `fontWeight` — so a
+   * weight that is not loaded does not fall back, it renders as the regular face.
+   * See `constants/design.ts`.
+   */
+  const [fontsLoaded] = useFonts({
+    Poppins_400Regular,
+    Poppins_500Medium,
+    Poppins_600SemiBold,
+    Poppins_700Bold,
+  });
   const homeScreenPrompt = useHomeScreenPrompt();
   /**
    * Holds a member on the set-password screen after they follow a recovery link.

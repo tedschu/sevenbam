@@ -3,10 +3,11 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
-  ScrollView,
+  Share,
   StyleSheet,
-  Switch,
+  Text,
   TextInput,
   View,
 } from 'react-native';
@@ -15,13 +16,39 @@ import { Avatar, EmptySeat } from '@/components/avatar';
 import { ChangeNoticePrompt } from '@/components/change-notice-prompt';
 import { ContactRows } from '@/components/contact-rows';
 import { EmailGroupButton } from '@/components/email-group-button';
-import { Icon } from '@/components/icon';
+import { CardHeading, type PillSpec } from '@/components/kit/cards';
+import {
+  Button,
+  GradientButton,
+  IconButton,
+  Pill,
+  TextLink,
+  Toggle,
+} from '@/components/kit/controls';
+import { FilterChip } from '@/components/kit/filters';
+import { Icon as KitIcon } from '@/components/kit/icons';
+import {
+  Card,
+  InfoNote,
+  InsetWell,
+  LeagueDot,
+  ScreenScaffold,
+  SectionHeader,
+  TitleBlock,
+} from '@/components/kit/layout';
+import { StatTile } from '@/components/kit/tiles';
+import {
+  colors as designColors,
+  pillTones as designPillTones,
+  radius as designRadius,
+  text as designText,
+} from '@/constants/design';
 import { PlaceAutocompleteInput } from '@/components/place-autocomplete-input';
 import { ScoreEntrySheet } from '@/components/score-entry-sheet';
 import { TablePlacement } from '@/components/table-placement';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { CardShadow, LeagueColors, OnAccent, Radius, Spacing } from '@/constants/theme';
+import { LeagueColors, OnAccent, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
   createSeason,
@@ -321,6 +348,9 @@ export function LeagueDetail({
    * merely opened a seating panel.
    */
   const openSeatingRef = useRef(openSeating);
+  /** The season the meetups below belong to, for the summary tile. */
+  const activeSeason = seasons.find((season) => season.id === seasonId) ?? null;
+
   const seasonIdRef = useRef(seasonId);
 
   useEffect(() => {
@@ -549,6 +579,25 @@ export function LeagueDetail({
       setError(cause instanceof Error ? cause.message : 'Could not change that.');
     } finally {
       setBusy(null);
+    }
+  };
+
+  /**
+   * Hands the invite link to the platform's share sheet — the design's header
+   * action. Falls back to the clipboard where there is no share sheet worth the
+   * name, which is the browser: `navigator.share` exists on some of them and not
+   * others, and a copied link is never the wrong outcome here.
+   */
+  const shareInvite = async () => {
+    const url = inviteUrlFor(league);
+    try {
+      if (Platform.OS === 'web') {
+        await copyInvite();
+        return;
+      }
+      await Share.share({ message: url, url });
+    } catch {
+      // A dismissed share sheet throws on some platforms. Nothing to report.
     }
   };
 
@@ -935,41 +984,70 @@ export function LeagueDetail({
     sessions.find((session) => new Date(session.date_time) >= new Date()) ?? null;
 
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      <Pressable onPress={onBack} style={({ pressed }) => [styles.back, pressed && styles.pressed]}>
-        <ThemedText type="label" themeColor="textSecondary">
-          ← All leagues
-        </ThemedText>
-      </Pressable>
+    <>
+      {/* The ribbon is placed a little tighter than the tab screens', per the
+          handoff's placement table — this screen leads with a back button rather
+          than an app mark, so the curve has less to clear. */}
+      <ScreenScaffold ribbon="compact" ribbonStyle={{ top: -30, right: -90 }}>
+        {/* Back and share. The share sheet hands over the same invite link the
+            card below copies, so the two cannot describe different leagues. */}
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <IconButton icon="chevronLeft" accessibilityLabel="All leagues" onPress={onBack} />
+          <View style={{ flex: 1 }} />
+          {isViewer ? null : (
+            <IconButton icon="share" accessibilityLabel="Share the invite link" onPress={shareInvite} />
+          )}
+        </View>
 
-      <View style={styles.titleRow}>
-        <View style={[styles.titleBar, { backgroundColor: tint }]} />
-        <View style={styles.titleText}>
-          <ThemedText type="title">{league.name}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {members.length} {members.length === 1 ? 'member' : 'members'} ·{' '}
-            {isOrganizer
+        <TitleBlock
+          leading={<LeagueDot color={tint} size={10} />}
+          eyebrow={
+            isOrganizer
               ? 'You organize this'
               : isViewer
                 ? 'Not a member — viewing'
-                : 'You are a member'}
-          </ThemedText>
+                : `${members.length} ${members.length === 1 ? 'member' : 'members'}`
+          }
+          title={league.name}
+          small
+        />
+
+        {/* Members, meetups and the season, as the tile motif — and the only one
+            that is pressable is the one that opens a picker. */}
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <StatTile value={members.length} label={members.length === 1 ? 'Member' : 'Members'} edgeColor={designColors.teal} />
+          <StatTile value={sessions.length} label={sessions.length === 1 ? 'Meetup' : 'Meetups'} edgeColor={designColors.yellow} />
+          <StatTile
+            value={activeSeason ? activeSeason.name.replace(/^Season\s*/i, '') : '—'}
+            label="Season"
+            edgeColor={designColors.coral}
+            /* Not pressable. The handoff has this tile open a season picker sheet,
+               which does not exist yet — the seasons are chosen from the row of
+               chips below, which is what the app has always had. A tile that
+               looked tappable and did nothing would be worse than a plain one. */
+            accessibilityLabel={activeSeason ? `Season ${activeSeason.name}` : 'Season'}
+          />
         </View>
-      </View>
 
       {/* Stated once, at the top, before anything below it looks broken for no
           apparent reason. */}
       {isArchived ? (
-        <ThemedView
-          type="backgroundSelected"
-          style={[styles.notice, { borderColor: theme.accentWarm }]}>
-          <Icon name="archive" color={theme.accentWarmInk} size={18} />
-          <ThemedText type="small" style={[styles.noticeText, { color: theme.accentWarmInk }]}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            gap: 10,
+            padding: 14,
+            borderRadius: designRadius.card,
+            backgroundColor: designColors.yellow,
+          }}>
+          <KitIcon name="archive" color={designColors.ink} size={18} />
+          <Text style={[designText.meta, { color: designColors.ink, flex: 1 }]}>
             Archived. The standings and every table played are still here, but the
             league is not listed anywhere, its invite link no longer works, and no
             new meetups can be added.
-          </ThemedText>
-        </ThemedView>
+          </Text>
+        </View>
       ) : null}
 
       {/* What changed under them while they were away.
@@ -981,37 +1059,31 @@ export function LeagueDetail({
           notice that clears itself as the screen scrolls past has not been read.
       */}
       {showRoleNotice ? (
-        <ThemedView
-          type="backgroundSelected"
-          style={[styles.notice, { borderColor: theme.accentWarm }]}>
-          {/* The group versus one of its members, which is the change itself. */}
-          <Icon name={isOrganizer ? 'people' : 'person'} color={theme.accentWarmInk} size={18} />
-          <View style={styles.noticeBody}>
-            <ThemedText type="smallBold" style={{ color: theme.accentWarmInk }}>
-              {isOrganizer
-                ? `You now organize ${league.name}`
-                : `You are no longer an organizer of ${league.name}`}
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {isOrganizer
-                ? 'You can move meetups, draw the tables, edit the league and make other members organizers. Whoever else organizes it still can too.'
-                : 'You can still see everything and play. Changing meetups and drawing tables is back to the other organizers.'}
-            </ThemedText>
+        <View
+          style={{
+            gap: 10,
+            padding: 14,
+            borderRadius: designRadius.card,
+            backgroundColor: designColors.yellow,
+          }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+            {/* The group versus one of its members, which is the change itself. */}
+            <KitIcon name={isOrganizer ? 'users' : 'profile'} color={designColors.ink} size={18} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[designText.bodyStrong, { color: designColors.ink }]}>
+                {isOrganizer
+                  ? `You now organize ${league.name}`
+                  : `You are no longer an organizer of ${league.name}`}
+              </Text>
+              <ThemedText type="small" themeColor="textSecondary">
+                {isOrganizer
+                  ? 'You can move meetups, draw the tables, edit the league and make other members organizers. Whoever else organizes it still can too.'
+                  : 'You can still see everything and play. Changing meetups and drawing tables is back to the other organizers.'}
+              </ThemedText>
+            </View>
           </View>
-          <Pressable
-            onPress={dismissRoleNotice}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss this notice"
-            style={({ pressed }) => [
-              styles.roleButton,
-              { borderColor: theme.accentWarm },
-              pressed && styles.pressed,
-            ]}>
-            <ThemedText type="label" style={{ color: theme.accentWarmInk }}>
-              Got it
-            </ThemedText>
-          </Pressable>
-        </ThemedView>
+          <Button variant="soft" size="sm" label="Got it" onPress={dismissRoleNotice} style={{ alignSelf: 'flex-start' }} />
+        </View>
       ) : null}
 
       {error ? (
@@ -1022,281 +1094,66 @@ export function LeagueDetail({
 
       {isLoading ? <ActivityIndicator style={styles.centered} /> : null}
 
-      {/* Invite link. Anyone with it can join, which is the whole mechanism —
-          there is no separate approval step, by design.
-
-          Hidden from a viewer. Everything else on this screen is something to
-          read, but this is a capability: the link admits whoever opens it, so
-          handing a Copy button to somebody with no standing in the league is
-          offering them a way to change it after all. Reading a league should not
-          come with the power to fill it. */}
-      {isViewer ? null : (
-      <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
-        <ThemedText type="label" themeColor="textSecondary">
-          Invite link
-        </ThemedText>
-        <ThemedText type="small" numberOfLines={1} style={styles.link}>
-          {inviteUrlFor(league)}
-        </ThemedText>
-        <View style={styles.cardActions}>
-          <Pressable
-            onPress={copyInvite}
-            disabled={isArchived}
-            style={({ pressed }) => pressed && styles.pressed}>
-            <View
-              style={[
-                styles.primaryButton,
-                { backgroundColor: tint },
-                isArchived && styles.disabled,
-              ]}>
-              <ThemedText type="label" style={styles.primaryLabel}>
-                {copied ? 'Copied' : 'Copy link'}
-              </ThemedText>
-            </View>
-          </Pressable>
-        </View>
-        <ThemedText type="small" themeColor="textSecondary">
-          {isArchived
-            ? 'This link stops working while the league is archived. Unarchive it to let people join again.'
-            : 'Anyone who opens this link and signs in joins the league.'}
-        </ThemedText>
-      </ThemedView>
-      )}
-
-      {/* Discoverability, organizers only. A member should not be able to publish
-          a group they do not run. The database agrees — the update policy on
-          leagues is organizer-only — so this is the UI matching the rule rather
-          than the rule itself. */}
-      {isOrganizer ? (
-        <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleText}>
-              <ThemedText type="label" themeColor="textSecondary">
-                Open to join
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {isArchived
-                  ? 'Archived leagues are never listed, whichever way this is set. The setting is kept for when you bring it back.'
-                  : isPublic
-                    ? 'Listed in Browse for anyone signed in, until it is full.'
-                    : 'Invite-only. Only people with the link above can join.'}
-              </ThemedText>
-            </View>
-            <Switch
-              value={isPublic}
-              onValueChange={(next) => saveVisibility(next, maxMembers)}
-              disabled={busy === 'visibility' || isArchived}
-              trackColor={{ true: theme.accent, false: theme.rule }}
-            />
-          </View>
-
-          {isPublic ? (
-            <View style={styles.field}>
-              <ThemedText type="label" themeColor="textSecondary">
-                Member limit
-              </ThemedText>
-              <TextInput
-                value={maxMembers}
-                onChangeText={(next) => setMaxMembers(next.replace(/[^0-9]/g, ''))}
-                // Saved on blur rather than per keystroke, so typing "12" does not
-                // briefly publish a league capped at 1.
-                onBlur={() => saveVisibility(isPublic, maxMembers)}
-                placeholder="No limit"
-                keyboardType="number-pad"
-                placeholderTextColor={theme.placeholder}
-                style={[styles.input, { color: theme.text, borderColor: theme.rule }]}
-              />
-              <ThemedText type="small" themeColor="textSecondary">
-                {members.length} of {maxMembers || '∞'} taken. Blank means no limit.
-              </ThemedText>
-            </View>
-          ) : null}
-        </ThemedView>
-      ) : null}
-
-      <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
-        <ThemedText type="label" themeColor="textSecondary">
-          Members
-        </ThemedText>
-        {members.map((member) => {
-          const theyOrganize = member.role === 'organizer';
-          const isYou = member.profile_id === userId;
-          /**
-           * The last organizer keeps the role whatever the button says, because
-           * the trigger refuses it — so the control is not drawn at all rather
-           * than offered and then rejected. The note under the roster explains
-           * the absence, which a missing button cannot do by itself.
-           */
-          const canChangeRole = canRun && (!theyOrganize || organizers.length > 1);
-
-          return (
-            <View key={member.profile_id} style={styles.memberRow}>
-              <Avatar person={member.profile ?? { name: null }} size={32} ring={theme.rule} />
-              <ThemedText type="default" numberOfLines={1} style={styles.memberName}>
-                {member.profile?.name ?? 'Unnamed member'}
-                {isYou ? ' (you)' : ''}
-              </ThemedText>
-              {theyOrganize ? (
-                <ThemedText type="label" style={{ color: theme.accentInk }}>
-                  Organizer
-                </ThemedText>
-              ) : null}
-
-              {busy === `role-${member.profile_id}` ? (
-                <ActivityIndicator />
-              ) : canChangeRole ? (
-                <Pressable
-                  onPress={() => changeRole(member, theyOrganize ? 'member' : 'organizer')}
-                  accessibilityRole="button"
-                  // Spelled out rather than left to the button's two words, which
-                  // read as an instruction with no object when a screen reader
-                  // reaches them out of the row's context.
-                  accessibilityLabel={
-                    theyOrganize
-                      ? isYou
-                        ? 'Step down as organizer of this league'
-                        : `Make ${member.profile?.name ?? 'this member'} a member again`
-                      : `Make ${member.profile?.name ?? 'this member'} an organizer`
-                  }
-                  style={({ pressed }) => [
-                    styles.roleButton,
-                    { borderColor: theme.rule },
-                    pressed && styles.pressed,
-                  ]}>
-                  {/* "Make member" rather than "Remove": next to a name, on a row
-                      that an organizer can also delete people from, "remove" reads
-                      as throwing them out of the league altogether. */}
-                  <ThemedText type="label" themeColor="textSecondary">
-                    {theyOrganize ? (isYou ? 'Step down' : 'Make member') : 'Make organizer'}
-                  </ThemedText>
-                </Pressable>
-              ) : null}
-            </View>
-          );
-        })}
-
-        {/* Why the only organizer has no Step down button. Without this the
-            control is simply missing on your own row, which reads as a bug. */}
-        {canRun && organizers.length === 1 && isOrganizer ? (
-          <ThemedText type="small" themeColor="textSecondary">
-            You are the only organizer. Make someone else an organizer before you step down.
-          </ThemedText>
-        ) : null}
-
-        {/* Writing to the league, for whoever runs it. Under the roster it reaches,
-            and still offered on an archived league: telling members a season has
-            been wound up is exactly when it is wanted. */}
-        {isOrganizer && members.length > 1 ? (
-          <View style={styles.emailMembers}>
-            <EmailGroupButton
-              label="Email members"
-              gather={() => fetchLeagueMemberEmails(league.id)}
-              subject={`${league.name} · update`}
-              // The next meetup, when there is one, so the commonest message — a
-              // change of plan — starts from the thing being changed.
-              body={[
-                '',
-                '',
-                '—',
-                league.name,
-                nextSession
-                  ? `Next meetup: ${formatWhen(nextSession.date_time)} · ${nextSession.location}`
-                  : '',
-              ]
-                .filter((line, index) => index < 3 || line.length > 0)
-                .join('\n')}
-            />
-          </View>
-        ) : null}
-
-        {/* The organizer's details, for members of this league only. Worded from
-            the reader's side: an organizer looking at their own league should see
-            what everyone else can see about them, not be told how to email
-            themselves. */}
-        {organizer && (organizer.email || organizer.phone) ? (
-          <View style={[styles.contactBlock, { borderColor: theme.rule }]}>
-            <ThemedText type="label" themeColor="textSecondary">
-              {isOrganizer ? 'What members see' : `Reach ${organizer.name ?? 'the organizer'}`}
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {isOrganizer
-                ? 'Everyone in this league can see these, so they can reach you.'
-                : 'Visible to members of this league.'}
-            </ThemedText>
-            <ContactRows contact={organizer} />
-          </View>
-        ) : null}
-      </ThemedView>
-
       {/* Seasons. A league with none yet shows nothing to switch between, so the
           picker only appears once there is a choice to make. */}
-      <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
-        <View style={styles.cardHeader}>
-          <ThemedText type="label" themeColor="textSecondary">
-            Season
+      <View style={{ gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <ThemedText type="small" themeColor="textSecondary" style={{ flex: 1 }}>
+            {activeSeason ? (
+              <>
+                Showing <ThemedText type="smallBold">{activeSeason.name}</ThemedText>
+              </>
+            ) : isOrganizer ? (
+              'Add a season, then add the meetups in it.'
+            ) : (
+              'No season has been set up yet.'
+            )}
           </ThemedText>
           {canRun ? (
-            <Pressable onPress={addSeason} style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedText type="label" style={{ color: theme.accentInk }}>
-                {busy === 'season' ? 'Adding…' : '+ New season'}
-              </ThemedText>
-            </Pressable>
+            <TextLink
+              icon="plus"
+              label={busy === 'season' ? 'Adding…' : 'New season'}
+              onPress={addSeason}
+            />
           ) : null}
         </View>
 
-        {seasons.length === 0 ? (
-          <ThemedText type="small" themeColor="textSecondary">
-            {isOrganizer
-              ? 'Add a season, then add the meetups in it.'
-              : 'No season has been set up yet.'}
-          </ThemedText>
-        ) : (
-          <View style={styles.chips}>
-            {seasons.map((season) => {
-              const selected = season.id === seasonId;
-              return (
-                <Pressable
-                  key={season.id}
-                  onPress={() => setSeasonId(season.id)}
-                  style={({ pressed }) => pressed && styles.pressed}>
-                  <ThemedView
-                    type={selected ? 'backgroundSelected' : 'backgroundElement'}
-                    style={[styles.chip, { borderColor: selected ? tint : theme.rule }]}>
-                    <ThemedText type="label" themeColor={selected ? 'text' : 'textSecondary'}>
-                      {season.name}
-                    </ThemedText>
-                  </ThemedView>
-                </Pressable>
-              );
-            })}
+        {/* Only once there is a choice to make. The summary tile above names the
+            season either way. */}
+        {seasons.length > 1 ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {seasons.map((season) => (
+              <FilterChip
+                key={season.id}
+                label={season.name}
+                selected={season.id === seasonId}
+                onPress={() => setSeasonId(season.id)}
+              />
+            ))}
           </View>
-        )}
-      </ThemedView>
+        ) : null}
+      </View>
 
       {seasonId ? (
-        <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
-          <View style={styles.cardHeader}>
-            <ThemedText type="label" themeColor="textSecondary">
-              Meetups
-            </ThemedText>
-            {canRun ? (
-              <Pressable
-                onPress={() => {
-                  // Editing and adding are the same fields, so leaving one has to
-                  // put the other back rather than opening both at once.
-                  if (editingSession) stopEditing();
-                  else setIsAddingSession((current) => !current);
-                }}
-                style={({ pressed }) => pressed && styles.pressed}>
-                <ThemedText type="label" style={{ color: theme.accentInk }}>
-                  {isAddingSession || editingSession ? 'Cancel' : '+ Add meetup'}
-                </ThemedText>
-              </Pressable>
-            ) : null}
-          </View>
+        <>
+          <SectionHeader
+            title="Meetups"
+            action={
+              canRun ? (
+                <TextLink
+                  icon={isAddingSession || editingSession ? undefined : 'plus'}
+                  label={isAddingSession || editingSession ? 'Cancel' : 'Add meetup'}
+                  onPress={() => {
+                    // Editing and adding are the same fields, so leaving one has to
+                    // put the other back rather than opening both at once.
+                    if (editingSession) stopEditing();
+                    else setIsAddingSession((current) => !current);
+                  }}
+                />
+              ) : null
+            }
+          />
 
-          {/* The offer to announce a move, once one is saved. Above the list, where
-              the thing it is talking about is. */}
           {changes.length > 0 ? (
             <ChangeNoticePrompt
               changes={changes}
@@ -1308,30 +1165,22 @@ export function LeagueDetail({
           ) : null}
 
           {isAddingSession || editingSession ? (
-            <View style={styles.newSession}>
-              <View style={styles.pair}>
+            <Card gap={16}>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
                 <TextInput
                   value={sessionDate}
                   onChangeText={setSessionDate}
                   placeholder="2026-09-05"
-                  placeholderTextColor={theme.placeholder}
-                  style={[
-                    styles.input,
-                    styles.pairItem,
-                    { color: theme.text, borderColor: theme.rule },
-                  ]}
+                  placeholderTextColor={designColors.placeholder}
+                  style={[formFieldInput, { flex: 1 }]}
                 />
                 <TextInput
                   value={sessionTime}
                   onChangeText={setSessionTime}
                   placeholder="7:00 pm"
-                  placeholderTextColor={theme.placeholder}
+                  placeholderTextColor={designColors.placeholder}
                   autoCapitalize="none"
-                  style={[
-                    styles.input,
-                    styles.pairItem,
-                    { color: theme.text, borderColor: theme.rule },
-                  ]}
+                  style={[formFieldInput, { flex: 1 }]}
                 />
               </View>
               {/* Repeating, for a league that meets on a schedule rather than
@@ -1342,38 +1191,27 @@ export function LeagueDetail({
                   and "repeat this one weekly" would mean something the save cannot
                   do. */}
               {editingSession ? null : (
-              <View style={styles.chips}>
-                {Frequencies.map((option) => {
-                  const selected = option.value === sessionRepeat;
-                  return (
-                    <Pressable
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {Frequencies.map((option) => (
+                    <FilterChip
                       key={option.value}
+                      label={option.label}
+                      selected={option.value === sessionRepeat}
                       onPress={() => setSessionRepeat(option.value)}
-                      style={({ pressed }) => pressed && styles.pressed}>
-                      <ThemedView
-                        type={selected ? 'backgroundSelected' : 'backgroundElement'}
-                        style={[styles.chip, { borderColor: selected ? tint : theme.rule }]}>
-                        <ThemedText type="label" themeColor={selected ? 'text' : 'textSecondary'}>
-                          {option.label}
-                        </ThemedText>
-                      </ThemedView>
-                    </Pressable>
-                  );
-                })}
-              </View>
+                    />
+                  ))}
+                </View>
               )}
 
               {editingSession || sessionRepeat === 'once' ? null : (
-                <View style={styles.field}>
-                  <ThemedText type="label" themeColor="textSecondary">
-                    Repeat until
-                  </ThemedText>
+                <View style={{ gap: 6 }}>
+                  <Text style={formFieldLabel}>REPEAT UNTIL</Text>
                   <TextInput
                     value={sessionUntil}
                     onChangeText={setSessionUntil}
                     placeholder="2026-12-19"
-                    placeholderTextColor={theme.placeholder}
-                    style={[styles.input, { color: theme.text, borderColor: theme.rule }]}
+                    placeholderTextColor={designColors.placeholder}
+                    style={formFieldInput}
                   />
                   {/* Monthly is read off the date rather than asked about
                       separately, so it has to say which rule it inferred — "the
@@ -1443,22 +1281,21 @@ export function LeagueDetail({
                 </ThemedText>
               ) : null}
 
-              <Pressable
+              <GradientButton
+                size="md"
+                label={
+                  busy === 'session'
+                    ? 'Saving…'
+                    : editingSession
+                      ? 'Save meetup'
+                      : plan.dates.length > 1
+                        ? `Add ${plan.dates.length} meetups`
+                        : 'Add meetup'
+                }
+                busy={busy === 'session'}
                 onPress={editingSession ? saveSession : addSession}
-                style={({ pressed }) => pressed && styles.pressed}>
-                <View style={[styles.primaryButton, { backgroundColor: tint }]}>
-                  <ThemedText type="label" style={styles.primaryLabel}>
-                    {busy === 'session'
-                      ? 'Saving…'
-                      : editingSession
-                        ? 'Save meetup'
-                        : plan.dates.length > 1
-                          ? `Add ${plan.dates.length} meetups`
-                          : 'Add meetup'}
-                  </ThemedText>
-                </View>
-              </Pressable>
-            </View>
+              />
+            </Card>
           ) : null}
 
           {sessions.length === 0 && !isAddingSession ? (
@@ -1467,88 +1304,97 @@ export function LeagueDetail({
             </ThemedText>
           ) : null}
 
-          {sessions.map((session) => (
-            <View key={session.id} style={[styles.sessionRow, { borderColor: theme.rule }]}>
-              <View style={styles.sessionText}>
-                {/* The venue, and beside it the one thing left to do about a
-                    meetup that has already happened.
+          {/* One card per meetup, newest first — the organizer's weekly job, and
+              the reason this section leads the screen. */}
+          {sessions.map((session, index) => {
+            const drawn = session.tables > 0;
+            const expected = here(session).expected_tables;
+            /**
+             * §8's second open question, answered from the data: a table is
+             * `completed` once its card is entered, and `played` is true as soon
+             * as any table is. So a meetup whose date has gone by with tables
+             * drawn and nothing played is precisely the one still owed its
+             * scores.
+             */
+            const pills: PillSpec[] = session.played
+              ? [{ label: 'Played', tone: 'neutral' }]
+              : isPast(session) && drawn
+                ? [{ label: 'Scores needed', tone: 'sub' }]
+                : [];
+            const drawLabel = drawn ? 'Reshuffle' : 'Draw tables';
+            /* Scores are offered from the hour of the meetup rather than the end
+               of it: nobody knows when a night finishes, and an organizer typing
+               the card while the tables are still packing up is the case to
+               design for. */
+            const canScore = canRun && isPast(session) && drawn;
+            /* The note explaining Draw and Ask subs, on the first meetup that
+               still has them rather than on every card. The handoff puts it under
+               each one; repeated down a season of six meetups it becomes a wall,
+               and it is the same two sentences every time. */
+            const firstActionable =
+              sessions.findIndex((other) => !other.played) === index && canRun;
 
-                    Here rather than in the icon column on the right, which is
-                    where the organizer's other controls are: those all act on a
-                    meetup that is still ahead — draw it, move it, open it to subs
-                    — and this one only ever appears once that has stopped being
-                    true. It also carries a word, because a glyph for "record the
-                    scores" is not a thing anybody has seen before and this is the
-                    action a season depends on being found.
+            return (
+              <Card key={session.id}>
+                <CardHeading
+                  date={new Date(session.date_time)}
+                  edgeColor={tint}
+                  pills={pills}
+                  title={`${session.sequence} · ${session.location}`}
+                  meta={[
+                    formatWhen(session.date_time),
+                    isOrganizer
+                      ? `${here(session).going} in${
+                          here(session).not_going > 0 ? ` · ${here(session).not_going} out` : ''
+                        }`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  leagueColor={tint}
+                />
 
-                    Offered from the hour of the meetup rather than from the end of
-                    it: nobody knows when a night finishes, and an organizer typing
-                    the card while the tables are still packing up is the case to
-                    design for. */}
-                <View style={styles.sessionTitleRow}>
-                  <ThemedText type="defaultSemiBold" style={styles.sessionTitle}>
-                    {session.sequence}. {session.location}
-                  </ThemedText>
-
-                  {canRun && isPast(session) && session.tables > 0 ? (
-                    <Pressable
-                      onPress={() => openScoring(session)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Add scores for ${session.location}`}
-                      style={({ pressed }) => pressed && styles.pressed}>
-                      <ThemedView
-                        type="backgroundElement"
-                        style={[styles.scoresChip, { borderColor: theme.rule }]}>
-                        {busy === `scores-${session.id}` ? (
-                          <ActivityIndicator size="small" />
-                        ) : (
-                          <Icon name="scorecard" color={theme.accentInk} size={14} />
-                        )}
-                        {/* `played` is true once *any* table is recorded, so a
-                            meetup with three cards in and one outstanding says
-                            "Edit scores" — which is right: the sheet opens on the
-                            three that are filled and the one that is not. */}
-                        <ThemedText type="label" style={{ color: theme.accentInk }}>
-                          {session.played ? 'Edit scores' : 'Add scores'}
-                        </ThemedText>
-                      </ThemedView>
-                    </Pressable>
-                  ) : null}
-                </View>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {formatWhen(session.date_time)}
-                </ThemedText>
-                {session.tables === 0 ? (
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Not drawn — {here(session).expected_tables}{' '}
-                    {here(session).expected_tables === 1 ? 'table' : 'tables'} from who is coming
-                  </ThemedText>
-                ) : (
-                  /* The line saying how many tables there are is the thing
-                     somebody is looking at when they wonder who is at them, so it
-                     is the control rather than a separate button competing with
-                     the three already in this row. */
+                {/* The line saying how many tables there are is the thing somebody
+                    is looking at when they wonder who is at them, so it is the
+                    control rather than a separate button. */}
+                {drawn ? (
                   <Pressable
                     onPress={() => toggleSeating(session)}
                     accessibilityRole="button"
+                    accessibilityState={{ expanded: openSeating === session.id }}
                     accessibilityLabel={
                       openSeating === session.id ? 'Hide the tables' : 'Show who is at each table'
                     }
-                    style={({ pressed }) => [styles.seatingToggle, pressed && styles.pressed]}>
-                    <ThemedText type="small" style={{ color: theme.accentInk }}>
+                    style={{
+                      height: 44,
+                      borderRadius: 12,
+                      backgroundColor: designColors.bg,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingHorizontal: 14,
+                    }}>
+                    <ThemedText type="label" style={{ color: designColors.link }}>
                       {session.tables} {session.tables === 1 ? 'table' : 'tables'} drawn
                       {session.played ? ' · played' : ''}
                     </ThemedText>
                     {busy === `seating-${session.id}` ? (
                       <ActivityIndicator size="small" />
                     ) : (
-                      <View
-                        style={openSeating === session.id ? styles.chevronOpen : undefined}>
-                        <Icon name="chevronDown" color={theme.accentInk} size={14} />
+                      <View style={openSeating === session.id ? styles.chevronOpen : undefined}>
+                        <KitIcon name="chevronDown" size={18} color={designColors.link} strokeWidth={2} />
                       </View>
                     )}
                   </Pressable>
+                ) : (
+                  <InsetWell>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Not drawn — {expected} {expected === 1 ? 'table' : 'tables'} from who is
+                      coming
+                    </ThemedText>
+                  </InsetWell>
                 )}
+
 
                 {/* Rearranging the tables, in place of the read-only seating.
                     Not beside it: two seating views on screen at once, one of
@@ -1567,30 +1413,26 @@ export function LeagueDetail({
                 ) : null}
 
                 {openSeating === session.id && placing !== session.id ? (
-                  <View style={styles.seating}>
+                  <View style={{ gap: 10 }}>
                     {canRun && !session.played ? (
-                      <Pressable
+                      <TextLink
+                        icon="pencil"
+                        label="Edit table placement"
                         onPress={() => setPlacing(session.id)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Edit table placement"
-                        style={({ pressed }) => pressed && styles.pressed}>
-                        <ThemedView
-                          type="backgroundElement"
-                          style={[styles.scoresChip, { borderColor: theme.rule, alignSelf: 'flex-start' }]}>
-                          <Icon name="pencil" color={theme.accentInk} size={14} />
-                          <ThemedText type="label" style={{ color: theme.accentInk }}>
-                            Edit table placement
-                          </ThemedText>
-                        </ThemedView>
-                      </Pressable>
+                      />
                     ) : null}
                     {tables.map((table) => {
                       const empty = Math.max(0, SEATS_PER_MATCH - table.seats.length);
                       return (
                         <View
                           key={table.id}
-                          style={[styles.table, { borderColor: theme.rule }]}>
-                          <View style={styles.tableHeader}>
+                          style={{
+                            gap: 8,
+                            padding: 12,
+                            borderRadius: designRadius.card,
+                            backgroundColor: designColors.bg,
+                          }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <ThemedText type="label" themeColor="textSecondary">
                               Table {table.table_number ?? '—'}
                             </ThemedText>
@@ -1600,45 +1442,40 @@ export function LeagueDetail({
                             <ThemedText type="label" themeColor="textSecondary">
                               {table.seats.length}/{SEATS_PER_MATCH}
                             </ThemedText>
-                            {table.needs_sub ? (
-                              <ThemedText type="label" style={{ color: theme.accentWarmInk }}>
-                                Open to subs
-                              </ThemedText>
-                            ) : null}
-                            {table.status === 'completed' ? (
-                              <ThemedText type="label" themeColor="textSecondary">
-                                Played
-                              </ThemedText>
-                            ) : null}
+                            {table.needs_sub ? <Pill label="Open to subs" tone="hosting" /> : null}
+                            {table.status === 'completed' ? <Pill label="Played" tone="neutral" /> : null}
                           </View>
 
                           {table.seats.map((seat) => (
-                            <View key={seat.player_id} style={styles.seatRow}>
+                            <View key={seat.player_id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                               <Avatar
                                 person={{ name: seat.name, avatar_url: seat.avatar_url }}
-                                size={26}
-                                ring={theme.rule}
+                                size={28}
+                                ring={designColors.white}
                               />
-                              <ThemedText type="small" numberOfLines={1} style={styles.seatName}>
+                              <ThemedText
+                                type="small"
+                                numberOfLines={1}
+                                style={{ flex: 1, color: designColors.ink }}>
                                 {seat.name ?? 'Unnamed member'}
                                 {seat.player_id === userId ? ' (you)' : ''}
                               </ThemedText>
                               {/* Whoever was dealt first, which is only who enters
                                   the scores — worth saying so nobody wonders. */}
                               {seat.player_id === table.host_id ? (
-                                <ThemedText type="label" themeColor="textSecondary">
-                                  Scores
-                                </ThemedText>
+                                <Text style={[designText.pill, { color: designColors.inkMuted }]}>
+                                  SCORES
+                                </Text>
                               ) : null}
                             </View>
                           ))}
 
                           {Array.from({ length: empty }, (_, seat) => (
-                            <View key={`empty-${seat}`} style={styles.seatRow}>
-                              <EmptySeat size={26} ring={theme.rule} />
-                              <ThemedText type="small" themeColor="textSecondary">
+                            <View key={`empty-${seat}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                              <EmptySeat size={28} ring={designColors.white} />
+                              <Text style={[designText.meta, { color: designColors.inkMuted }]}>
                                 Empty seat
-                              </ThemedText>
+                              </Text>
                             </View>
                           ))}
                         </View>
@@ -1647,189 +1484,361 @@ export function LeagueDetail({
                   </View>
                 ) : null}
 
-                {/* Everyone in the league is in until they say otherwise, so this
-                    is the roster minus the people who cannot make it. Organizers
-                    only: a member answers for themselves rather than auditing the
-                    roster. */}
-                {isOrganizer ? (
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {here(session).going} in
-                    {here(session).not_going > 0 ? ` · ${here(session).not_going} out` : ''}
-                  </ThemedText>
-                ) : null}
-
                 {session.subs_open > 0 ? (
-                  <ThemedText type="label" style={{ color: theme.accentWarmInk }}>
-                    {session.subs_open} {session.subs_open === 1 ? 'table' : 'tables'} open to subs
-                  </ThemedText>
+                  <Pill
+                    label={`${session.subs_open} ${
+                      session.subs_open === 1 ? 'table' : 'tables'
+                    } open to subs`}
+                    tone="hosting"
+                  />
                 ) : null}
 
                 {/* Everybody answers, including the organizer — they play too.
                     Going is the default and stays unmarked until it is chosen, so
                     the row does not claim an answer nobody gave. */}
-                {isPast(session) ? null : (
-                  <View style={styles.rsvpRow}>
-                    {busy === `rsvp-${session.id}` ? (
-                      <ActivityIndicator />
-                    ) : (
-                      (['in', 'out'] as const).map((choice) => {
-                        // See the same control on My Matches: going is shown as
-                        // chosen until it is taken back.
-                        const chosen = (here(session).mine ?? 'in') === choice;
-                        const tone =
-                          choice === 'in'
-                            ? { fill: theme.going, ink: OnAccent }
-                            : { fill: theme.danger, ink: theme.onAccentButton };
-                        return (
-                          <Pressable
-                            key={choice}
-                            onPress={() => answer(session, choice)}
-                            style={({ pressed }) => pressed && styles.pressed}>
-                            <ThemedView
-                              type="backgroundElement"
-                              style={[
-                                styles.rsvpChip,
-                                {
-                                  borderColor: chosen ? tone.fill : theme.rule,
-                                  backgroundColor: chosen ? tone.fill : undefined,
-                                },
-                              ]}>
-                              <Icon
-                                name={choice === 'in' ? 'check' : 'close'}
-                                size={14}
-                                color={chosen ? tone.ink : theme.textSecondary}
-                              />
-                              <ThemedText
-                                type="label"
-                                style={chosen ? { color: tone.ink } : undefined}
-                                themeColor={chosen ? undefined : 'textSecondary'}>
-                                {choice === 'in' ? 'Going' : "Can't make it"}
-                              </ThemedText>
-                            </ThemedView>
-                          </Pressable>
-                        );
-                      })
-                    )}
+                {isPast(session) ? null : busy === `rsvp-${session.id}` ? (
+                  <ActivityIndicator />
+                ) : (
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <FilterChip
+                      label="Going"
+                      selected={(here(session).mine ?? 'in') === 'in'}
+                      selectedTone="info"
+                      onPress={() => answer(session, 'in')}
+                    />
+                    <FilterChip
+                      label="Can't make it"
+                      selected={(here(session).mine ?? 'in') === 'out'}
+                      selectedTone="sub"
+                      onPress={() => answer(session, 'out')}
+                    />
                   </View>
                 )}
-              </View>
 
-              {canRun ? (
-                <View style={styles.sessionActions}>
-                  {busy === session.id ? (
+                {canScore ? (
+                  session.played ? (
+                    /* `played` is true once *any* table is recorded, so a meetup
+                       with three cards in and one outstanding says "Edit scores" —
+                       which is right: the sheet opens on the three that are filled
+                       and the one that is not. */
+                    <Button
+                      variant="outline"
+                      size="md"
+                      icon="scores"
+                      label="Edit scores"
+                      busy={busy === `scores-${session.id}`}
+                      onPress={() => openScoring(session)}
+                    />
+                  ) : (
+                    <GradientButton
+                      size="md"
+                      icon="plus"
+                      label="Add scores"
+                      onPress={() => openScoring(session)}
+                    />
+                  )
+                ) : null}
+
+                {canRun ? (
+                  busy === session.id ? (
                     <ActivityIndicator />
                   ) : (
-                    <>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
                       {/* Redrawing is allowed until a table has been played, which
-                          the database enforces rather than this button. */}
-                      <Pressable
-                        onPress={() => draw(session)}
-                        disabled={session.played}
-                        accessibilityLabel={session.tables === 0 ? 'Draw tables' : 'Redraw tables'}
-                        style={({ pressed }) => pressed && styles.pressed}>
-                        <View
-                          style={[
-                            styles.iconButton,
-                            { backgroundColor: tint, borderColor: tint },
-                            session.played && styles.disabled,
-                          ]}>
-                          <Icon name="shuffle" color={OnAccent} size={18} />
-                        </View>
-                      </Pressable>
-
-                      {/* Offered whether or not the tables are drawn, because the
-                          draw is exactly when moving it matters — the details are
-                          already copied onto four matches by then. */}
-                      <Pressable
-                        onPress={() => startEditing(session)}
-                        accessibilityLabel="Edit meetup"
-                        style={({ pressed }) => pressed && styles.pressed}>
-                        <ThemedView
-                          type="backgroundElement"
-                          style={[styles.iconButton, { borderColor: theme.rule }]}>
-                          <Icon name="pencil" color={theme.textSecondary} size={18} />
-                        </ThemedView>
-                      </Pressable>
+                          the database enforces rather than this button. Once it is
+                          refused, the control says so with a padlock rather than
+                          fading out, which read as broken. */}
+                      {session.played ? (
+                        <IconButton
+                          size={48}
+                          icon="shuffle"
+                          tone="draw"
+                          locked
+                          accessibilityLabel="Reshuffle locked: a table has been played"
+                        />
+                      ) : (
+                        <Button
+                          variant="draw"
+                          icon="shuffle"
+                          label={drawLabel}
+                          onPress={() => draw(session)}
+                          style={{ flex: 1, paddingHorizontal: 0 }}
+                        />
+                      )}
 
                       {/* Offered once there is a drawn table with an empty chair.
                           Before the draw there is nothing to open, and the fix for
                           being short beforehand is simply to draw fewer tables. */}
-                      {session.tables > 0 && !session.played ? (
-                        <Pressable
+                      {drawn && !session.played ? (
+                        <Button
+                          variant="plain"
+                          icon="users"
+                          label="Ask subs"
+                          active={session.subs_open > 0}
                           onPress={() => toggleSubs(session)}
-                          accessibilityLabel={
-                            session.subs_open > 0 ? 'Stop asking for subs' : 'Ask for subs'
-                          }
-                          style={({ pressed }) => pressed && styles.pressed}>
-                          <ThemedView
-                            type={session.subs_open > 0 ? 'backgroundSelected' : 'backgroundElement'}
-                            style={[
-                              styles.iconButton,
-                              { borderColor: session.subs_open > 0 ? theme.accentWarm : theme.rule },
-                            ]}>
-                            <Icon
-                              name="people"
-                              color={session.subs_open > 0 ? theme.accentWarmInk : theme.textSecondary}
-                              size={18}
-                            />
-                          </ThemedView>
-                        </Pressable>
+                          style={{ flex: 1, paddingHorizontal: 0 }}
+                        />
                       ) : null}
 
-                      {session.tables === 0 ? (
-                        <Pressable
-                          onPress={() => removeSession(session)}
+                      {/* Offered whether or not the tables are drawn, because the
+                          draw is exactly when moving it matters — the details are
+                          already copied onto four matches by then. */}
+                      <Button
+                        variant="plain"
+                        icon="pencil"
+                        label="Edit"
+                        onPress={() => startEditing(session)}
+                        style={{ flex: 1, paddingHorizontal: 0 }}
+                      />
+
+                      {!drawn ? (
+                        <IconButton
+                          size={48}
+                          icon="archive"
                           accessibilityLabel="Remove meetup"
-                          style={({ pressed }) => pressed && styles.pressed}>
-                          <ThemedView
-                            type="backgroundElement"
-                            style={[styles.iconButton, { borderColor: theme.rule }]}>
-                            <Icon name="trash" color={theme.textSecondary} size={18} />
-                          </ThemedView>
-                        </Pressable>
+                          onPress={() => removeSession(session)}
+                        />
                       ) : null}
-                    </>
-                  )}
-                </View>
+                    </View>
+                  )
+                ) : null}
+
+                {firstActionable && !session.played ? (
+                  <InfoNote
+                    rows={[
+                      {
+                        icon: 'shuffle',
+                        chipBg: designPillTones.draw.bg,
+                        chipFg: designPillTones.draw.fg,
+                        term: drawLabel,
+                        body:
+                          'deals everyone coming into tables of four and adds each table to their ' +
+                          "My Matches. It locks once a table is played, so scores can't be erased.",
+                      },
+                      {
+                        icon: 'users',
+                        chipBg: designColors.white,
+                        chipFg: designColors.ink,
+                        chipBorder: true,
+                        term: 'Ask subs',
+                        body:
+                          "lists this meetup's empty seats in Browse for players outside the " +
+                          'league. Tap again to stop.',
+                      },
+                    ]}
+                  />
+                ) : null}
+              </Card>
+            );
+          })}
+        </>
+      ) : null}
+
+        <SectionHeader title="Members" />
+      <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
+        {members.map((member, index) => {
+          const theyOrganize = member.role === 'organizer';
+          const isYou = member.profile_id === userId;
+          /**
+           * The last organizer keeps the role whatever the button says, because
+           * the trigger refuses it — so the control is not drawn at all rather
+           * than offered and then rejected. The note under the roster explains
+           * the absence, which a missing button cannot do by itself.
+           */
+          const canChangeRole = canRun && (!theyOrganize || organizers.length > 1);
+
+          return (
+            <View
+              key={member.profile_id}
+              style={[
+                styles.memberRow,
+                index > 0 && {
+                  borderTopWidth: 1,
+                  borderTopColor: designColors.divider,
+                  paddingTop: 12,
+                },
+              ]}>
+              <Avatar person={member.profile ?? { name: null }} size={40} ring={designColors.white} />
+              <ThemedText type="default" numberOfLines={1} style={styles.memberName}>
+                {member.profile?.name ?? 'Unnamed member'}
+                {isYou ? ' (you)' : ''}
+              </ThemedText>
+              {theyOrganize ? <Pill label="Organizer" tone="info" /> : null}
+
+              {busy === `role-${member.profile_id}` ? (
+                <ActivityIndicator />
+              ) : canChangeRole ? (
+                <Button
+                  variant="plain"
+                  size="xs"
+                  /* "Make member" rather than "Remove": next to a name, on a row
+                     that an organizer can also delete people from, "remove" reads
+                     as throwing them out of the league altogether. */
+                  label={theyOrganize ? (isYou ? 'Step down' : 'Make member') : 'Make organizer'}
+                  onPress={() => changeRole(member, theyOrganize ? 'member' : 'organizer')}
+                />
               ) : null}
             </View>
-          ))}
+          );
+        })}
 
-          {/* The controls above are glyphs on 34px buttons, which is fine for the
-              pencil and the bin and no use at all for the other two: nobody has
-              ever seen a "draw the tables" icon before, and an organizer who does
-              not press it never gets a season. So the legend shows the same mark
-              beside what it does, rather than describing it in words that leave
-              the reader matching prose to pictures. Organizers only — these are
-              the only buttons a member cannot press. */}
-          {canRun && sessions.length > 0 ? (
-            <View style={styles.legend}>
-              <View style={styles.legendRow}>
-                <ThemedView
-                  type="backgroundElement"
-                  style={[styles.iconButton, { backgroundColor: tint, borderColor: tint }]}>
-                  <Icon name="shuffle" color={OnAccent} size={18} />
-                </ThemedView>
-                <ThemedText type="small" themeColor="textSecondary" style={styles.legendText}>
-                  <ThemedText type="smallBold">Draw the tables.</ThemedText> Shuffles
-                  everyone who is coming into tables of four and puts each table into
-                  their My Matches. Press it again to reshuffle — until a table has
-                  been played, after which it is refused so scores cannot be erased.
-                </ThemedText>
-              </View>
+        {/* Why the only organizer has no Step down button. Without this the
+            control is simply missing on your own row, which reads as a bug. */}
+        {canRun && organizers.length === 1 && isOrganizer ? (
+          <ThemedText type="small" themeColor="textSecondary">
+            You are the only organizer. Make someone else an organizer before you step down.
+          </ThemedText>
+        ) : null}
 
-              <View style={styles.legendRow}>
-                <ThemedView
-                  type="backgroundElement"
-                  style={[styles.iconButton, { borderColor: theme.rule }]}>
-                  <Icon name="people" color={theme.textSecondary} size={18} />
-                </ThemedView>
-                <ThemedText type="small" themeColor="textSecondary" style={styles.legendText}>
-                  <ThemedText type="smallBold">Ask for subs.</ThemedText> Offers the
-                  empty seats at this meetup&apos;s short tables to people outside the
-                  league, who find them in Browse. Press it again to stop.
-                </ThemedText>
-              </View>
+        {/* Writing to the league, for whoever runs it. Under the roster it reaches,
+            and still offered on an archived league: telling members a season has
+            been wound up is exactly when it is wanted. */}
+        {isOrganizer && members.length > 1 ? (
+          <View style={styles.emailMembers}>
+            <EmailGroupButton
+              label="Email members"
+              gather={() => fetchLeagueMemberEmails(league.id)}
+              subject={`${league.name} · update`}
+              // The next meetup, when there is one, so the commonest message — a
+              // change of plan — starts from the thing being changed.
+              body={[
+                '',
+                '',
+                '—',
+                league.name,
+                nextSession
+                  ? `Next meetup: ${formatWhen(nextSession.date_time)} · ${nextSession.location}`
+                  : '',
+              ]
+                .filter((line, index) => index < 3 || line.length > 0)
+                .join('\n')}
+            />
+          </View>
+        ) : null}
+
+        {/* The organizer's details, for members of this league only. Worded from
+            the reader's side: an organizer looking at their own league should see
+            what everyone else can see about them, not be told how to email
+            themselves. */}
+      </ThemedView>
+
+      {/* Its own card, per the handoff — a mail chip, the label, then the address,
+          rather than a block tucked under the roster. */}
+      {organizer && (organizer.email || organizer.phone) ? (
+        <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: designPillTones.info.bg,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+              <KitIcon name="mail" size={17} color={designPillTones.info.fg} />
+            </View>
+            <ThemedText
+              type="label"
+              style={{ color: designPillTones.info.fg, letterSpacing: 0.88 }}>
+              {isOrganizer ? 'EMAIL' : (organizer.name ?? 'ORGANIZER').toUpperCase()}
+            </ThemedText>
+          </View>
+          <ContactRows contact={organizer} />
+          <ThemedText type="small" themeColor="textSecondary">
+            {isOrganizer
+              ? 'Everyone in this league can see this, so they can reach you.'
+              : 'Visible to members of this league.'}
+          </ThemedText>
+        </ThemedView>
+      ) : null}
+
+        {/* Invite and access together: the link that admits people and the switch
+            that decides whether they have to be handed one. */}
+        {isViewer ? null : <SectionHeader title="Invite & access" />}
+      {/* Invite link. Anyone with it can join, which is the whole mechanism —
+          there is no separate approval step, by design.
+
+          Hidden from a viewer. Everything else on this screen is something to
+          read, but this is a capability: the link admits whoever opens it, so
+          handing a Copy button to somebody with no standing in the league is
+          offering them a way to change it after all. Reading a league should not
+          come with the power to fill it. */}
+      {isViewer ? null : (
+      <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
+        <ThemedText type="label" themeColor="textSecondary">
+          Invite link
+        </ThemedText>
+        {/* A field showing the link with a dark Copy button sitting inside it, so
+            the thing being copied and the way to copy it are one control. */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            backgroundColor: designColors.bg,
+            borderRadius: 999,
+            paddingLeft: 14,
+            paddingRight: 4,
+            paddingVertical: 4,
+          }}>
+          <ThemedText type="small" numberOfLines={1} style={{ flex: 1 }}>
+            {inviteUrlFor(league)}
+          </ThemedText>
+          <Button
+            variant="dark"
+            label={copied ? 'Copied' : 'Copy link'}
+            disabled={isArchived}
+            onPress={copyInvite}
+          />
+        </View>
+        <ThemedText type="small" themeColor="textSecondary">
+          {isArchived
+            ? 'This link stops working while the league is archived. Unarchive it to let people join again.'
+            : 'Anyone who opens this link and signs in joins the league.'}
+        </ThemedText>
+      </ThemedView>
+      )}
+
+      {/* Discoverability, organizers only. A member should not be able to publish
+          a group they do not run. The database agrees — the update policy on
+          leagues is organizer-only — so this is the UI matching the rule rather
+          than the rule itself. */}
+      {isOrganizer ? (
+        <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
+          <Toggle
+            value={isPublic}
+            onValueChange={(next) => saveVisibility(next, maxMembers)}
+            disabled={busy === 'visibility' || isArchived}
+            label="Open to join"
+            description={
+              isArchived
+                ? 'Archived leagues are never listed, whichever way this is set. The setting is kept for when it is unarchived.'
+                : isPublic
+                  ? 'Listed in Browse for anyone signed in, until it is full.'
+                  : 'Invite-only. Only people with the link above can join.'
+            }
+          />
+
+          {isPublic ? (
+            <View style={styles.field}>
+              <ThemedText type="label" themeColor="textSecondary">
+                Member limit
+              </ThemedText>
+              <TextInput
+                value={maxMembers}
+                onChangeText={(next) => setMaxMembers(next.replace(/[^0-9]/g, ''))}
+                // Saved on blur rather than per keystroke, so typing "12" does not
+                // briefly publish a league capped at 1.
+                onBlur={() => saveVisibility(isPublic, maxMembers)}
+                placeholder="No limit"
+                keyboardType="number-pad"
+                placeholderTextColor={theme.placeholder}
+                style={[styles.input, { color: theme.text, borderColor: theme.rule }]}
+              />
+              <ThemedText type="small" themeColor="textSecondary">
+                {members.length} of {maxMembers || '∞'} taken. Blank means no limit.
+              </ThemedText>
             </View>
           ) : null}
         </ThemedView>
@@ -1839,117 +1848,130 @@ export function LeagueDetail({
           Archiving leads because it is the reversible one, and because it is
           almost always what "I'm done with this league" actually means. */}
       {isOrganizer ? (
-        <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
-          <ThemedText type="label" themeColor="textSecondary">
-            Wind it up
-          </ThemedText>
-
-          <ThemedText type="small" themeColor="textSecondary">
-            {isArchived
-              ? 'Bring the league back and it is listed and joinable again exactly as it was.'
-              : 'Archiving keeps every season, table and score, and stops the league taking anyone new. You can undo it.'}
-          </ThemedText>
-
-          <View style={styles.cardActions}>
-            <Pressable
-              onPress={toggleArchive}
-              disabled={busy === 'archive'}
-              style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView
-                type="backgroundElement"
-                style={[styles.wideButton, { borderColor: theme.rule }]}>
-                <Icon name="archive" color={theme.textSecondary} size={18} />
-                <ThemedText type="label" themeColor="textSecondary">
-                  {busy === 'archive'
-                    ? 'Saving…'
-                    : isArchived
-                      ? 'Unarchive league'
-                      : 'Archive league'}
+        <>
+          <SectionHeader title="Wind it up" />
+          <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  backgroundColor: designColors.yellow,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                <KitIcon name="archive" size={17} color={designColors.ink} />
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <ThemedText type="smallBold">
+                  {isArchived ? 'Unarchive league' : 'Archive league'}
                 </ThemedText>
-              </ThemedView>
-            </Pressable>
-          </View>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {isArchived
+                    ? 'Bring the league back and it is listed and joinable again exactly as it was.'
+                    : 'Keeps every season, table and score, and stops new people joining. You can undo it.'}
+                </ThemedText>
+              </View>
+            </View>
 
-          {/* Deleting, when there is nothing played to lose. Two steps, and the
-              second one counts what goes rather than warning in the abstract. */}
-          <View style={[styles.removal, { borderColor: theme.rule }]}>
-            {canDelete ? (
-              isConfirmingDelete ? (
-                <>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    This erases the league for all {members.length}{' '}
-                    {members.length === 1 ? 'member' : 'members'}
-                    {footprint && footprint.seasons > 0
-                      ? `, along with ${footprint.seasons} ${
-                          footprint.seasons === 1 ? 'season' : 'seasons'
-                        }`
-                      : ''}
-                    {footprint && footprint.tables > 0
-                      ? ` and ${footprint.tables} drawn ${
-                          footprint.tables === 1 ? 'table' : 'tables'
-                        }`
-                      : ''}
-                    . It cannot be undone. Matches somebody tagged with this league
-                    stay, as pick-up games.
-                  </ThemedText>
-                  <View style={styles.removalActions}>
-                    <Pressable
-                      onPress={() => setIsConfirmingDelete(false)}
-                      style={({ pressed }) => pressed && styles.pressed}>
-                      <ThemedText type="label" themeColor="textSecondary">
-                        Keep it
-                      </ThemedText>
-                    </Pressable>
-                    <Pressable
-                      onPress={remove}
-                      disabled={busy === 'delete'}
-                      style={({ pressed }) => pressed && styles.pressed}>
-                      <ThemedText type="label" style={{ color: theme.danger }}>
-                        {busy === 'delete' ? 'Deleting…' : 'Yes, delete this league'}
-                      </ThemedText>
-                    </Pressable>
-                  </View>
-                </>
+            <Button
+              variant="soft"
+              size="md"
+              label={
+                busy === 'archive' ? 'Saving…' : isArchived ? 'Unarchive league' : 'Archive league'
+              }
+              busy={busy === 'archive'}
+              onPress={toggleArchive}
+            />
+
+            {/* Deleting, when there is nothing played to lose. Two steps, and the
+                second one counts what goes rather than warning in the abstract. */}
+            <View style={{ borderTopWidth: 1, borderTopColor: designColors.divider, paddingTop: 14, gap: 10 }}>
+              {canDelete ? (
+                isConfirmingDelete ? (
+                  <>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      This erases the league for all {members.length}{' '}
+                      {members.length === 1 ? 'member' : 'members'}
+                      {footprint && footprint.seasons > 0
+                        ? `, along with ${footprint.seasons} ${
+                            footprint.seasons === 1 ? 'season' : 'seasons'
+                          }`
+                        : ''}
+                      {footprint && footprint.tables > 0
+                        ? ` and ${footprint.tables} drawn ${
+                            footprint.tables === 1 ? 'table' : 'tables'
+                          }`
+                        : ''}
+                      . It cannot be undone. Matches somebody tagged with this league
+                      stay, as pick-up games.
+                    </ThemedText>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <Button
+                        variant="soft"
+                        size="md"
+                        label="Keep it"
+                        onPress={() => setIsConfirmingDelete(false)}
+                        style={{ flex: 1 }}
+                      />
+                      <Button
+                        variant="danger"
+                        size="md"
+                        label={busy === 'delete' ? 'Deleting…' : 'Yes, delete'}
+                        busy={busy === 'delete'}
+                        onPress={remove}
+                        style={{ flex: 1 }}
+                      />
+                    </View>
+                  </>
+                ) : (
+                  <Button
+                    variant="danger"
+                    label="Delete league"
+                    onPress={() => setIsConfirmingDelete(true)}
+                  />
+                )
               ) : (
-                <Pressable
-                  onPress={() => setIsConfirmingDelete(true)}
-                  style={({ pressed }) => pressed && styles.pressed}>
-                  <ThemedText type="label" style={{ color: theme.danger }}>
-                    Delete league
+                // Not offered rather than offered-and-refused, and it says why.
+                // Deleting here would cascade through the sessions and take the
+                // recorded scores with them — see deleteLeague.
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+                  <KitIcon name="lock" size={14} color={designColors.inkMuted} strokeWidth={2.2} />
+                  <ThemedText type="small" themeColor="textSecondary" style={{ flex: 1 }}>
+                    {footprint === null
+                      ? 'Checking what this league holds…'
+                      : `Deleting is off: ${footprint.played} ${
+                          footprint.played === 1 ? 'table has' : 'tables have'
+                        } been played, and its scores are part of everyone's standings.`}
                   </ThemedText>
-                </Pressable>
-              )
-            ) : (
-              // Not offered rather than offered-and-refused, and it says why.
-              // Deleting here would cascade through the sessions and take the
-              // recorded scores with them — see deleteLeague.
-              <ThemedText type="small" themeColor="textSecondary">
-                {footprint === null
-                  ? 'Checking what this league holds…'
-                  : `${footprint.played} ${
-                      footprint.played === 1 ? 'table has' : 'tables have'
-                    } been played, so this league can no longer be deleted — the scores are part of everyone's standings. Archive it instead.`}
-              </ThemedText>
-            )}
-          </View>
-        </ThemedView>
+                </View>
+              )}
+            </View>
+          </ThemedView>
+        </>
       ) : null}
 
       {/* Not offered to a viewer, who has nothing to leave. The delete policy
           would refuse it anyway, but an admin reading a league they are not in
           should not be shown a red button that claims otherwise. */}
       {league.role === 'viewer' ? (
-        <ThemedText type="small" themeColor="textSecondary" style={styles.destructive}>
+        <ThemedText
+          type="small"
+          themeColor="textSecondary"
+          style={[styles.destructive, { textAlign: 'center' }]}>
           You are not a member of this league. You are seeing it because global
           view is on.
         </ThemedText>
       ) : (
-        <Pressable onPress={leave} style={({ pressed }) => pressed && styles.pressed}>
-          <ThemedText type="label" style={[styles.destructive, { color: theme.danger }]}>
-            {busy === 'leave' ? 'Leaving…' : 'Leave this league'}
-          </ThemedText>
-        </Pressable>
+        <TextLink
+          label={busy === 'leave' ? 'Leaving…' : 'Leave this league'}
+          color={designColors.danger}
+          onPress={leave}
+          style={{ justifyContent: 'center' }}
+        />
       )}
+      </ScreenScaffold>
 
       {/* The same sheet My Matches opens, handed the whole meetup instead of one
           table. Keyed on the meetup so the drafts are rebuilt from what is
@@ -1982,9 +2004,25 @@ export function LeagueDetail({
           }}
         />
       ) : null}
-    </ScrollView>
+    </>
   );
 }
+
+
+/** The kit's filled-well field, shared with login.tsx and match-sheet.tsx. */
+const formFieldInput = {
+  ...designText.body,
+  fontSize: 16,
+  color: designColors.ink,
+  backgroundColor: designColors.bg,
+  borderWidth: 1,
+  borderColor: designColors.track,
+  borderRadius: designRadius.inset,
+  paddingHorizontal: 14,
+  height: 48,
+};
+
+const formFieldLabel = { ...designText.caption, color: designColors.inkMuted, letterSpacing: 0.6 };
 
 const styles = StyleSheet.create({
   content: {
@@ -2012,12 +2050,19 @@ const styles = StyleSheet.create({
   titleText: {
     flex: 1,
   },
+  /**
+   * The redesign's card: radius 24, no border, the deeper two-layer lift.
+   * `components/kit/layout.tsx` draws the same surface for everything built on
+   * the kit; this stays a stylesheet entry because the sections below are still
+   * `ThemedView`s, and restyling in place is what let them move over without
+   * re-pairing their tags.
+   */
   card: {
-    padding: Spacing.three,
-    borderRadius: Radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: Spacing.two,
-    boxShadow: CardShadow,
+    padding: 16,
+    borderRadius: 24,
+    borderWidth: 0,
+    gap: 14,
+    boxShadow: '0px 1px 2px rgba(20, 26, 46, 0.04), 0px 10px 28px rgba(20, 26, 46, 0.08)',
   },
   cardHeader: {
     flexDirection: 'row',

@@ -52,6 +52,32 @@ export async function openContact(scheme: 'mailto' | 'tel', value: string) {
   await Linking.openURL(url);
 }
 
+export type SupportMessage = { to: string; subject: string; body: string };
+
+/**
+ * Opens a message to us, with the subject and a first question already in it.
+ *
+ * Separate from `openContact`, which hands over an address and nothing else. That
+ * is right for writing to a host: you know what you want to say. A report is the
+ * other way round — the member knows something is wrong and not what we need in
+ * order to act on it, so the body asks for it.
+ *
+ * Encoded by hand rather than through `URLSearchParams` as `openGroupEmail` does.
+ * That spells a space `+`, which is correct for a form body and wrong here: several
+ * mail clients print it literally, and a subject line arriving as
+ * "Reporting+something" reads as a bug in the app that sent it.
+ */
+export async function openSupportEmail({ to, subject, body }: SupportMessage) {
+  const url = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  if (Platform.OS === 'web') {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+
+  await Linking.openURL(url);
+}
+
 /** Someone a host or organizer can write to. */
 export type Recipient = { name: string | null; email: string | null };
 

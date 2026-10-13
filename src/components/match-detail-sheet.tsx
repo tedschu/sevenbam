@@ -1,15 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Text, View } from 'react-native';
 
-import { Avatar, EmptySeat } from '@/components/avatar';
-import { QuietButton } from '@/components/button';
+import { Avatar as OldAvatar, EmptySeat } from '@/components/avatar';
 import { ContactRows } from '@/components/contact-rows';
 import { EmailGroupButton } from '@/components/email-group-button';
-import { Icon } from '@/components/icon';
-import { Sheet, SheetFooter, SheetSection, SheetTitle } from '@/components/sheet';
-import { ThemedText } from '@/components/themed-text';
-import { LeagueColors, Radius, Spacing, type LeagueColor } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Button } from '@/components/kit/controls';
+import { LeagueDot } from '@/components/kit/layout';
+import { Sheet, SheetFooter, SheetHeader, SheetSection } from '@/components/kit/sheet';
+import { colors, leagueEdge, text } from '@/constants/design';
 import { fetchMatchHostContact, fetchMatchPlayerEmails, type Contact } from '@/lib/contact';
 import { formatMiles } from '@/lib/geo';
 import { canMap, openMap } from '@/lib/maps';
@@ -27,34 +25,33 @@ function Roster({
   calendarSent?: boolean;
   onAddToCalendar?: () => void;
 }) {
-  const theme = useTheme();
   const empty = Math.max(0, SEATS_PER_MATCH - match.players.length);
 
   return (
-    <View style={styles.roster}>
+    <View style={{ gap: 14, marginTop: 4 }}>
       {match.players.map((player) => (
-        <View key={player.player_id} style={styles.rosterRow}>
-          <Avatar person={player.profile ?? { name: null }} size={36} ring={theme.rule} />
-          <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.rosterName}>
+        <View key={player.player_id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <OldAvatar person={player.profile ?? { name: null }} size={36} ring={colors.white} />
+          <Text
+            style={[text.bodyStrong, { color: colors.ink, flex: 1 }]}
+            numberOfLines={1}>
             {player.profile?.name ?? 'Unnamed member'}
             {player.player_id === userId ? ' (you)' : ''}
-          </ThemedText>
+          </Text>
           {player.player_id === match.host_id ? (
-            <ThemedText type="label" style={{ color: theme.accentWarmInk }}>
-              Host
-            </ThemedText>
+            <Text style={[text.pill, { color: colors.link }]}>HOST</Text>
           ) : null}
 
           {/* On the member's own row, where taking a seat just put their name —
               rather than at the foot of the sheet, where it read as one more grey
-              glyph in a row of controls and was missed. Same icons and same states
-              as My Matches, so the calendar is one recognisable thing everywhere. */}
+              glyph in a row of controls and was missed. */}
           {player.player_id === userId && onAddToCalendar ? (
-            <QuietButton
-              icon={calendarSent ? 'calendarCheck' : 'calendarPlus'}
-              label={calendarSent ? 'Already sent to calendar — send again' : 'Add to calendar'}
+            <Button
+              variant="soft"
+              size="xs"
+              icon="calendar"
+              label={calendarSent ? 'Sent' : 'Calendar'}
               onPress={onAddToCalendar}
-              tone={calendarSent ? 'done' : 'accent'}
             />
           ) : null}
         </View>
@@ -64,11 +61,9 @@ function Roster({
           thing you read. The count is in the section heading for anyone who wants
           it as a number. */}
       {Array.from({ length: empty }, (_, seat) => (
-        <View key={`open-${seat}`} style={styles.rosterRow}>
-          <EmptySeat size={36} ring={theme.rule} />
-          <ThemedText type="small" themeColor="textSecondary" style={styles.rosterName}>
-            Open seat
-          </ThemedText>
+        <View key={`open-${seat}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <EmptySeat size={36} ring={colors.white} />
+          <Text style={[text.body, { color: colors.inkMuted, flex: 1 }]}>Open seat</Text>
         </View>
       ))}
     </View>
@@ -122,7 +117,6 @@ export function MatchDetailSheet({
   /** The screen's seat control, so joining does not mean closing this first. */
   action?: ReactNode;
 }) {
-  const theme = useTheme();
   const isHost = match.host_id === userId;
   const isOver = match.status === 'canceled' || match.status === 'completed';
   const canEdit = isHost && !isOver && Boolean(onEdit);
@@ -153,77 +147,64 @@ export function MatchDetailSheet({
     };
   }, [entitled, match.id, visible]);
 
-
   return (
     <Sheet visible={visible} onClose={onClose}>
-      <SheetTitle
+      <SheetHeader
         title={match.location}
         onClose={onClose}
         eyebrow={
           match.league ? (
-            <View style={styles.leagueTag}>
-              <View
-                style={[
-                  styles.leagueDot,
-                  {
-                    backgroundColor:
-                      LeagueColors[match.league.color as LeagueColor] ?? theme.accent,
-                  },
-                ]}
-              />
-              <ThemedText type="label" themeColor="textSecondary">
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <LeagueDot color={leagueEdge(match.league.color)} />
+              <Text style={[text.meta, { color: colors.inkMuted }]}>
                 {match.league.name}
                 {match.table_number ? ` · Table ${match.table_number}` : ''}
-              </ThemedText>
+              </Text>
             </View>
           ) : (
-            <ThemedText type="label" themeColor="textSecondary">
-              Pick-up match
-            </ThemedText>
+            <Text style={[text.meta, { color: colors.inkMuted }]}>Pick-up match</Text>
           )
         }
       />
 
-      {/* Said once, plainly, rather than left to the edge bar's colour — the bar is
-          not in view from inside the sheet. */}
+      {/* Said once, plainly, rather than left to a pill — the card's pills are not
+          in view from inside the sheet. */}
       {match.status === 'canceled' ? (
-        <ThemedText type="smallBold" style={{ color: theme.danger }}>
+        <Text style={[text.bodyStrong, { color: colors.danger }]}>
           This match was called off by the host.
-        </ThemedText>
+        </Text>
       ) : null}
       {match.status === 'completed' ? (
-        <ThemedText type="smallBold" themeColor="textSecondary">
+        <Text style={[text.bodyStrong, { color: colors.inkMuted }]}>
           Played. Scores are on the Leaderboard.
-        </ThemedText>
+        </Text>
       ) : null}
 
       <SheetSection title="When">
-        <ThemedText type="defaultSemiBold">{formatFullWhen(match.date_time)}</ThemedText>
+        <Text style={[text.bodyStrong, { color: colors.ink }]}>{formatFullWhen(match.date_time)}</Text>
       </SheetSection>
 
       <SheetSection title="Where">
-        <ThemedText type="defaultSemiBold">{match.location}</ThemedText>
+        <Text style={[text.bodyStrong, { color: colors.ink }]}>{match.location}</Text>
         {/* The whole address, unwrapped. On a card this is one truncated line,
             which is exactly what somebody about to drive there does not need. */}
         {match.location_detail ? (
-          <ThemedText type="small" themeColor="textSecondary">
-            {match.location_detail}
-          </ThemedText>
+          <Text style={[text.meta, { color: colors.inkMuted }]}>{match.location_detail}</Text>
         ) : (
-          <ThemedText type="small" themeColor="textSecondary">
+          <Text style={[text.meta, { color: colors.inkMuted }]}>
             No street address given — ask the host if you need one.
-          </ThemedText>
+          </Text>
         )}
         {typeof distance === 'number' ? (
-          <ThemedText type="small" style={{ color: theme.accentInk }}>
-            {formatMiles(distance)}
-          </ThemedText>
+          <Text style={[text.meta, { color: colors.link }]}>{formatMiles(distance)}</Text>
         ) : null}
 
         {/* Offered only when there is a real address to open. See canMap: a link is
             worse than no link when all it can search for is a venue somebody named
             themselves. */}
-        {canMap(match) ? <MapLink onPress={() => openMap(match)} /> : null}
+        {canMap(match) ? (
+          <MapLink onPress={() => openMap(match)} style={{ marginTop: 8 }} />
+        ) : null}
       </SheetSection>
 
       <SheetSection title={`Players · ${taken} of ${SEATS_PER_MATCH} seats taken`}>
@@ -242,7 +223,7 @@ export function MatchDetailSheet({
           has joined, which the roster above already says in rings.
         */}
         {isHost && taken > 1 ? (
-          <View style={styles.emailPlayers}>
+          <View style={{ marginTop: 14 }}>
             <EmailGroupButton
               label="Email players"
               gather={() => fetchMatchPlayerEmails(match.id)}
@@ -271,28 +252,26 @@ export function MatchDetailSheet({
           synchronous setState, which cascades a render. */}
       {entitled && contact && (contact.email || contact.phone) ? (
         <SheetSection title={isHost ? 'What players see' : 'Reach the host'}>
-          <ThemedText type="small" themeColor="textSecondary">
+          <Text style={[text.meta, { color: colors.inkMuted }]}>
             {isHost
               ? 'Everyone seated at this match can see these, so they can reach you.'
               : `${contact.name ?? 'The host'} is running this match.`}
-          </ThemedText>
+          </Text>
           <ContactRows contact={contact} />
         </SheetSection>
       ) : null}
 
       <SheetSection title="Tiles">
-        <ThemedText type="small" themeColor="textSecondary">
+        <Text style={[text.meta, { color: colors.inkMuted }]}>
           {match.supplies_provided
             ? 'The host is providing tiles and racks.'
             : 'Nobody has said they are bringing tiles — check with the host.'}
-        </ThemedText>
+        </Text>
       </SheetSection>
 
       {match.notes ? (
         <SheetSection title="From the host">
-          <ThemedText type="small" themeColor="textSecondary">
-            {match.notes}
-          </ThemedText>
+          <Text style={[text.meta, { color: colors.inkMuted }]}>{match.notes}</Text>
         </SheetSection>
       ) : null}
 
@@ -302,21 +281,7 @@ export function MatchDetailSheet({
       {action || canEdit ? (
         <SheetFooter>
           {action}
-          {canEdit ? (
-            <Pressable
-              onPress={onEdit}
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.editButton,
-                { backgroundColor: theme.accentButton },
-                pressed && styles.pressed,
-              ]}>
-              <Icon name="pencil" color={theme.onAccentButton} size={16} />
-              <ThemedText type="smallBold" style={{ color: theme.onAccentButton }}>
-                Edit match
-              </ThemedText>
-            </Pressable>
-          ) : null}
+          {canEdit ? <Button variant="dark" icon="pencil" label="Edit match" onPress={onEdit!} /> : null}
         </SheetFooter>
       ) : null}
     </Sheet>
@@ -327,75 +292,22 @@ export function MatchDetailSheet({
  * The directions link. Outlined rather than filled: it leaves the app, and the
  * things worth filling in a sheet are the ones that act on what you are reading.
  */
-export function MapLink({ onPress }: { onPress: () => void }) {
-  const theme = useTheme();
-
+export function MapLink({
+  onPress,
+  style,
+}: {
+  onPress: () => void;
+  style?: React.ComponentProps<typeof View>['style'];
+}) {
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="link"
-      accessibilityLabel="Open this venue in Google Maps"
-      style={({ pressed }) => [
-        styles.mapLink,
-        { borderColor: theme.rule },
-        pressed && styles.pressed,
-      ]}>
-      <Icon name="pin" color={theme.accentInk} size={16} />
-      <ThemedText type="smallBold" style={{ color: theme.accentInk }}>
-        Open in Google Maps
-      </ThemedText>
-    </Pressable>
+    <View style={style}>
+      <Button
+        variant="outline"
+        size="sm"
+        icon="pin"
+        label="Open in Google Maps"
+        onPress={onPress}
+      />
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  leagueTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  leagueDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  mapLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-    minHeight: 40,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderWidth: 1,
-    borderRadius: Radius.pill,
-  },
-  roster: {
-    gap: Spacing.three,
-    marginTop: Spacing.one,
-  },
-  emailPlayers: {
-    marginTop: Spacing.three,
-  },
-  rosterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  rosterName: {
-    flex: 1,
-  },
-  editButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    minHeight: 40,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    borderRadius: Radius.pill,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-});

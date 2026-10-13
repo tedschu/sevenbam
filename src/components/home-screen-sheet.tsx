@@ -1,12 +1,8 @@
-import { StyleSheet, View } from 'react-native';
+import { Text, View } from 'react-native';
 
-import { GradientButton } from './button';
-import { Sheet, SheetFooter, SheetTitle } from './sheet';
-import { ThemedText } from './themed-text';
-import { ThemedView } from './themed-view';
-
-import { Radius, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { GradientButton } from '@/components/kit/controls';
+import { Sheet, SheetFooter, SheetHeader } from '@/components/kit/sheet';
+import { colors, fonts, text } from '@/constants/design';
 import type { MobilePlatform } from '@/lib/home-screen-prompt';
 
 /**
@@ -32,8 +28,6 @@ export function HomeScreenSheet({
   platform: MobilePlatform;
   onClose: () => void;
 }) {
-  const theme = useTheme();
-
   /**
    * Written for the platform, not for one browser. Safari is the common case on
    * iOS but not the only one, and on Android the menu belongs to Chrome, Samsung
@@ -57,12 +51,10 @@ export function HomeScreenSheet({
 
   return (
     <Sheet visible={visible} onClose={onClose}>
-      <SheetTitle
+      <SheetHeader
         title="Keep Seven Bam one tap away"
         eyebrow={
-          <ThemedText type="small" themeColor="textSecondary">
-            You are in — nice one
-          </ThemedText>
+          <Text style={[text.meta, { color: colors.inkMuted }]}>You are in — nice one</Text>
         }
         onClose={onClose}
       />
@@ -70,25 +62,31 @@ export function HomeScreenSheet({
       {/* Leads with what this is, because somebody who has just joined a game is
           entitled to wonder where the app is. Saying "web app, apps coming" first
           turns the steps below from a workaround into the interim answer. */}
-      <ThemedText type="small" themeColor="textSecondary">
+      <Text style={[text.meta, { color: colors.inkMuted }]}>
         This is the web version of Seven Bam — the iOS and Android apps are coming
         soon. Until then, add it to your home screen and it opens just like a native
         app, straight to your matches. Nothing to install, and you stay signed in.
-      </ThemedText>
+      </Text>
 
-      <View style={styles.steps}>
+      <View style={{ gap: 14 }}>
         {steps.map((step, index) => (
-          <View key={step} style={styles.step}>
+          <View key={step} style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
             {/* Numbered rather than bulleted: these have to happen in order, and
                 the second one is the step people miss. */}
-            <ThemedView
-              type="backgroundSelected"
-              style={[styles.number, { borderColor: theme.accentWarm }]}>
-              <ThemedText type="label" style={{ color: theme.accentWarmInk }}>
+            <View
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                backgroundColor: colors.ink,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+              <Text style={{ fontFamily: fonts.bold, fontSize: 13, color: colors.white }}>
                 {index + 1}
-              </ThemedText>
-            </ThemedView>
-            <ThemedText style={styles.stepText}>{step}</ThemedText>
+              </Text>
+            </View>
+            <Text style={[text.body, { color: colors.ink, flex: 1 }]}>{step}</Text>
           </View>
         ))}
       </View>
@@ -97,31 +95,8 @@ export function HomeScreenSheet({
         {/* One way out, and it is not a refusal. There is nothing to decline here —
             the sheet has already said everything it has to say, so "Got it" is the
             honest label and the close button in the corner does the same job. */}
-        <GradientButton label="Got it" onPress={onClose} wide />
+        <GradientButton label="Got it" onPress={onClose} style={{ flex: 1 }} />
       </SheetFooter>
     </Sheet>
   );
 }
-
-const styles = StyleSheet.create({
-  steps: {
-    gap: Spacing.three,
-  },
-  step: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  number: {
-    width: 28,
-    height: 28,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  /** Takes the slack so a wrapping step stays aligned under itself. */
-  stepText: {
-    flex: 1,
-  },
-});

@@ -1,32 +1,42 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, RefreshControl, Text, View } from 'react-native';
 
-import { BrowseFilterBar, defaultFilters, type BrowseFilters } from '@/components/browse-filters';
+import { defaultFilters, type BrowseFilters, activeExtraCount } from '@/components/browse-filters';
 import { ProfileSetupBanner } from '@/components/profile-setup-banner';
-import { GradientButton, QuietButton, SolidButton } from '@/components/button';
 import { LeagueCard } from '@/components/league-card';
-import { MatchCard } from '@/components/match-card';
+import { MatchCard, initialsOf, matchDayKey, playersOf } from '@/components/match-card';
 import { MatchSheet } from '@/components/match-sheet';
-import { Ribbon } from '@/components/ribbon';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import { dayKey, MonthCalendar, type CalendarDot } from '@/components/kit/calendar';
+import { NeedsSubCard, NoOpenSeatsCard } from '@/components/kit/cards';
+import { Button, GradientButton, IconButton, SegmentedControl, TextLink } from '@/components/kit/controls';
+import { ExtraFilters } from '@/components/kit/filters';
+import { Icon } from '@/components/kit/icons';
+import {
+  Card,
+  ScreenHeader,
+  ScreenScaffold,
+  SectionHeader,
+  TitleBlock,
+} from '@/components/kit/layout';
+import { colors, leagueEdge, text } from '@/constants/design';
 import { useGlobalView } from '@/hooks/use-global-view';
-import { useTheme } from '@/hooks/use-theme';
+import { useNeedsProfileSetup } from '@/hooks/use-profile-setup';
 import { addMatchToCalendar, loadCalendarSent, recordCalendarSent } from '@/lib/calendar';
 import {
   coordinatesOf,
   DefaultDistance,
+  DistanceOptions,
   fetchDeviceLocation,
   milesBetween,
   timeOfDayOf,
   type Coordinates,
   type DayIndex,
+  type DistanceMiles,
 } from '@/lib/geo';
 import {
   fetchUpcomingMatches,
+  formatTimeOfDay,
   isSeated,
   joinMatch,
   leaveMatch,
@@ -35,8 +45,10 @@ import {
 } from '@/lib/matches';
 import { fetchPublicLeagues, joinPublicLeague, type PublicLeague } from '@/lib/leagues';
 import { offerHomeScreenPrompt } from '@/hooks/use-home-screen-prompt';
-import { fetchMyHome } from '@/lib/profile';
+import { fetchMyBearings } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
+
+const AppMark = require('@/assets/images/app-mark.png');
 
 /**
  * How far something is from wherever the member is measuring from — their saved
@@ -61,15 +73,6 @@ function distanceFrom(
 function leagueDistance(league: PublicLeague, from: Coordinates | null) {
   return distanceFrom(from, { latitude: league.next_latitude, longitude: league.next_longitude });
 }
-
-/**
- * Browse lists two kinds of thing: matches to sit down at, and public leagues to
- * join. A tagged union rather than two lists, so one distance filter and one
- * empty state cover both.
- */
-type Row =
-  | { key: string; kind: 'league'; league: PublicLeague; distance: number | null }
-  | { key: string; kind: 'match'; match: Match; distance: number | null };
 
 /**
  * Whether a match survives the filters.
@@ -141,10 +144,38 @@ function isMember(match: Match, userId: string) {
   return match.host_id === userId || isSeated(match, userId);
 }
 
+/** A table this member could sit down at — what "Needs you" is about. */
+function needsAPlayer(match: Match, userId: string) {
+  return (
+    match.status === 'open' &&
+    match.host_id !== userId &&
+    !isSeated(match, userId) &&
+    match.players.length < SEATS_PER_MATCH
+  );
+}
+
+const DistanceLabels: Record<string, string> = {
+  '5': '5 mi',
+  '15': '15 mi',
+  '25': '25 mi',
+  '50': '50 mi',
+  any: 'Any',
+};
+
+const keyOf = (miles: DistanceMiles) => (miles === null ? 'any' : String(miles));
+
+/** Morning before noon, afternoon before five, evening after. */
+function greeting(name: string | null) {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const first = name?.trim().split(/\s+/)[0];
+  return first ? `${part}, ${first}` : part;
+}
+
 /**
  * Only genuinely actionable states get a control. "Hosting" and "Full" used to
- * sit here styled like buttons while doing nothing; the card's edge bar and
- * standing label carry that now.
+ * sit here styled like buttons while doing nothing; the card's pills carry that
+ * now.
  */
 function SeatButton({
   match,
@@ -159,34 +190,20 @@ function SeatButton({
   onJoin: () => void;
   onLeave: () => void;
 }) {
-  const theme = useTheme();
-
   // The host holds a seat for the life of the match; leaving would orphan it.
   // Calling a match off is an edit, and lives on My Matches.
   if (!hasSeatControl(match, userId)) return null;
-  if (busy) return <ActivityIndicator />;
 
   if (isSeated(match, userId)) {
-    return (
-      <Pressable onPress={onLeave} style={({ pressed }) => pressed && styles.pressed}>
-        <View
-          style={[styles.seatButton, styles.outlined, { borderColor: theme.rule }]}>
-          <ThemedText type="label" themeColor="textSecondary">
-            Leave
-          </ThemedText>
-        </View>
-      </Pressable>
-    );
+    return <Button variant="plain" label="Leave" onPress={onLeave} busy={busy} />;
   }
 
-  // The same component the league cards use, so a seat and a league read as the
-  // same kind of offer rather than two unrelated controls on one screen.
-  return <SolidButton label="Join" onPress={onJoin} />;
+  return <Button variant="outline" label="Join" onPress={onJoin} busy={busy} />;
 }
 
 export default function BrowseMatchesScreen() {
   const globalView = useGlobalView();
-  const theme = useTheme();
+  const needsSetup = useNeedsProfileSetup();
   const [matches, setMatches] = useState<Match[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [filters, setFilters] = useState<BrowseFilters>(() => defaultFilters(DefaultDistance));
@@ -195,7 +212,12 @@ export default function BrowseMatchesScreen() {
    * Read once per load rather than passed in: Browse is the only screen that
    * needs it, and a member can change their town on Profile mid-session.
    */
-  const [home, setHome] = useState<Coordinates | null>(null);
+  const [bearings, setBearings] = useState<{
+    name: string | null;
+    town: string | null;
+    home: Coordinates | null;
+    avatarUrl: string | null;
+  }>({ name: null, town: null, home: null, avatarUrl: null });
   /**
    * Where the device says the member is, once they have asked for it, and whether
    * the list is currently measured from there.
@@ -211,11 +233,11 @@ export default function BrowseMatchesScreen() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [leagues, setLeagues] = useState<PublicLeague[]>([]);
   /**
-   * The instant the cards' timing labels are measured against, captured when the
+   * The instant the cards' timing pills are measured against, captured when the
    * list loads rather than read while rendering — the same reasoning as `loadedAt`
    * on My Matches. Tying it to the fetch also puts the boundary in the right
-   * place: this screen reloads on focus, which is exactly when "is this new, is
-   * this imminent" should be asked again.
+   * place: this screen reloads on focus, which is exactly when "is this tonight"
+   * should be asked again.
    */
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [joiningLeagueId, setJoiningLeagueId] = useState<string | null>(null);
@@ -235,6 +257,14 @@ export default function BrowseMatchesScreen() {
    * no way to change it is just a dead end.
    */
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
+  /**
+   * List or calendar. The toggle sits above both "Needs you" and the calendar
+   * grid, since it governs the same underlying `visible` matches either way —
+   * only how they're laid out changes.
+   */
+  const [browseView, setBrowseView] = useState<'list' | 'calendar'>('list');
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [selectedDay, setSelectedDay] = useState<Date | null>(() => new Date());
   const [calendarSent, setCalendarSent] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
@@ -250,8 +280,9 @@ export default function BrowseMatchesScreen() {
 
       setUserId(user.id);
       setMatches(await fetchUpcomingMatches(globalView));
-      // Never throws — a failed lookup just means no distance filtering.
-      setHome(await fetchMyHome(user.id));
+      // Never throws — a failed lookup just means no distance filtering and a
+      // header that greets nobody in particular.
+      setBearings(await fetchMyBearings(user.id));
       // Swallowed on purpose: a directory that fails to load should not take the
       // list of matches down with it.
       setLeagues(await fetchPublicLeagues().catch(() => []));
@@ -351,7 +382,7 @@ export default function BrowseMatchesScreen() {
    *
    * A refusal is left silent on purpose: the prompt said what was being asked and
    * the member said no, so repeating it back as an error would be scolding them
-   * for an answer they meant. The button stays where it is, which is the whole of
+   * for an answer they meant. The link stays where it is, which is the whole of
    * what they need to change their mind.
    */
   const useDeviceLocation = async () => {
@@ -364,9 +395,7 @@ export default function BrowseMatchesScreen() {
         setUsingDeviceLocation(true);
       }
     } catch (cause) {
-      setLocationError(
-        cause instanceof Error ? cause.message : 'Could not tell where you are.'
-      );
+      setLocationError(cause instanceof Error ? cause.message : 'Could not tell where you are.');
     } finally {
       setLocating(false);
     }
@@ -377,317 +406,426 @@ export default function BrowseMatchesScreen() {
    * asked for and actually in hand, so a failed lookup silently leaves the saved
    * town doing the job it was already doing.
    */
-  const origin = usingDeviceLocation && here ? here : home;
+  const origin = usingDeviceLocation && here ? here : bearings.home;
+  /**
+   * Whether anything can be measured. A device fix counts as much as a saved
+   * town, which is the point of offering it: somebody who has never set a town
+   * gets the distance control the moment they say where they are.
+   */
+  const hasOrigin = bearings.home !== null || (usingDeviceLocation && here !== null);
 
   const visible = matches.filter((match) => keep(match, filters, origin));
-  // Counted over what is on screen, not over everything loaded. Counting the
-  // whole list put "4 tables open" above a filtered list of one.
-  const openCount = visible.filter((match) => match.status === 'open').length;
   const visibleLeagues = leagues.filter((league) => keepLeague(league, filters, origin));
 
-  // Leagues first: there are few of them, and joining one is the bigger
-  // commitment, so it should not be buried under a season's worth of tables.
-  const rows: Row[] = [
-    ...visibleLeagues.map((league) => ({
-      key: `league-${league.id}`,
-      kind: 'league' as const,
-      league,
-      distance: leagueDistance(league, origin),
-    })),
-    ...visible.map((match) => ({
-      key: `match-${match.id}`,
-      kind: 'match' as const,
-      match,
-      distance: distanceFrom(origin, match),
-    })),
-  ];
+  // Soonest first: the whole point of the section is the table you could still
+  // get to.
+  const needsYou = visible
+    .filter((match) => needsAPlayer(match, userId ?? ''))
+    .sort((a, b) => a.date_time.localeCompare(b.date_time));
+  /**
+   * Everything else that is on — full tables, and the ones this member is already
+   * in or is running.
+   *
+   * Not in the mockups, which lead with "Needs you" and then go straight to
+   * leagues. Kept because Browse today lists every upcoming match: without this
+   * section a full table you had been watching, or your own hosted game, would
+   * simply vanish from the screen.
+   */
+  const alsoOn = visible
+    .filter((match) => !needsAPlayer(match, userId ?? ''))
+    .sort((a, b) => a.date_time.localeCompare(b.date_time));
 
   // Distinguishes "nothing on at all" from "your filters hid everything", which
   // want different words and different fixes.
   const hiddenByFilters =
     matches.length - visible.length + (leagues.length - visibleLeagues.length);
+  const extras = activeExtraCount(filters);
+
+  /** The next distance out, for the empty state's "Widen to" button. */
+  const nextDistance =
+    DistanceOptions[Math.min(DistanceOptions.indexOf(filters.distance) + 1, DistanceOptions.length - 1)];
+  const widenLabel =
+    filters.distance === null || nextDistance === filters.distance
+      ? undefined
+      : DistanceLabels[keyOf(nextDistance)];
+
+  const matchAction = (match: Match) => {
+    const sentToCalendar = calendarSent.has(match.id);
+    const canDiarise = isMember(match, userId ?? '');
+
+    return (
+      <>
+        {canDiarise ? (
+          <IconButton
+            icon="calendar"
+            accessibilityLabel={
+              sentToCalendar ? 'Already sent to calendar — send again' : 'Add to calendar'
+            }
+            onPress={() => sendToCalendar(match)}
+          />
+        ) : null}
+        <SeatButton
+          match={match}
+          userId={userId ?? ''}
+          busy={busyMatchId === match.id}
+          onJoin={() => changeSeat(match.id, joinMatch, true)}
+          onLeave={() => changeSeat(match.id, leaveMatch)}
+        />
+      </>
+    );
+  };
+
+  /**
+   * The same card, and the same reasoning for opening its own detail sheet on
+   * tap, whether it's a row in "Also on" or a row in the calendar's agenda —
+   * one place decides what a match card does with itself.
+   */
+  const matchRow = (match: Match) => {
+    const sentToCalendar = calendarSent.has(match.id);
+    const canDiarise = isMember(match, userId ?? '');
+    const onRoster = isSeated(match, userId ?? '');
+
+    return (
+      <MatchCard
+        key={match.id}
+        match={match}
+        userId={userId ?? ''}
+        distance={distanceFrom(origin, match)}
+        now={loadedAt}
+        onEdit={() => setEditingMatchId(match.id)}
+        action={matchAction(match)}
+        detailAction={
+          hasSeatControl(match, userId ?? '') ? (
+            <SeatButton
+              match={match}
+              userId={userId ?? ''}
+              busy={busyMatchId === match.id}
+              onJoin={() => changeSeat(match.id, joinMatch, true)}
+              onLeave={() => changeSeat(match.id, leaveMatch)}
+            />
+          ) : undefined
+        }
+        calendarSent={sentToCalendar}
+        onAddToCalendar={canDiarise && onRoster ? () => sendToCalendar(match) : undefined}
+      />
+    );
+  };
+
+  /**
+   * One dot per match on Browse, bucketed onto the grid by the match's own
+   * day — see `matchDayKey`. Built from `visible`, so the calendar respects
+   * the same distance/day/time/open/supplies filters the list does; toggling
+   * views never shows a different set of games, only a different layout of
+   * the same set.
+   */
+  // Not memoized: `visible` is itself a fresh array every render (it's a plain
+  // `.filter()` above, not its own memo), so a dependency on it would never
+  // actually skip work — this is exactly as cheap either way.
+  const dotsByDay: Record<string, CalendarDot[]> = {};
+  for (const match of visible) {
+    const key = matchDayKey(match);
+    (dotsByDay[key] ??= []).push({ color: leagueEdge(match.league?.color) });
+  }
+
+  const selectedDayMatches = selectedDay
+    ? visible
+        .filter((match) => matchDayKey(match) === dayKey(selectedDay))
+        .sort((a, b) => a.date_time.localeCompare(b.date_time))
+    : [];
 
   return (
-    <ThemedView type="backgroundElement" style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <View style={styles.headerRow}>
-            <View style={styles.headerText}>
-              {/* Carries a count rather than restating the title, so the
-                  eyebrow tells you something the heading does not. */}
-              {/* `accentInk`, not `accent`: the teal fill is 2.5:1 on white and
-                  this is 11px type. */}
-              <ThemedText type="label" themeColor="accentInk">
-                {openCount === 0
-                  ? 'No open tables'
-                  : `${openCount} ${openCount === 1 ? 'table' : 'tables'} open`}
-              </ThemedText>
-              <ThemedText type="title">Browse</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-                Find a table to join
-              </ThemedText>
-            </View>
-            {/* This screen's one gradient. */}
-            <GradientButton label="Propose" onPress={() => setIsProposing(true)} />
-          </View>
-        </View>
+    <>
+      <ScreenScaffold
+        ribbon="hero"
+        animateRibbon
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}>
+        <ScreenHeader
+          logo={AppMark}
+          initials={initialsOf(bearings.name)}
+          photoUrl={bearings.avatarUrl}
+          badge={needsSetup}
+          onProfilePress={() => router.push('/profile')}
+          trailing={
+            <GradientButton
+              size="sm"
+              icon="plus"
+              label="Propose"
+              glow
+              onPress={() => setIsProposing(true)}
+            />
+          }
+        />
+
+        <TitleBlock
+          eyebrow={greeting(bearings.name)}
+          title="Find a table"
+          subtitle={
+            needsYou.length + alsoOn.length > 0
+              ? `${needsYou.length + alsoOn.length} ${
+                  needsYou.length + alsoOn.length === 1 ? 'game' : 'games'
+                } coming up${bearings.town ? ` near ${bearings.town}` : ''}`
+              : undefined
+          }
+        />
 
         {/* Above the filters, below the heading: the first thing under the title
             for a member who has not finished setting up, and absent for everyone
             else. Browse is where every new member lands, which is why it is here
             rather than on the profile screen they have no reason to visit yet. */}
-        <View style={styles.setupPrompt}>
-          <ProfileSetupBanner />
+        <ProfileSetupBanner />
+
+        <View style={{ gap: 10 }}>
+          {hasOrigin ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <SegmentedControl
+                accessibilityLabel="Distance"
+                style={{ flex: 1 }}
+                value={keyOf(filters.distance)}
+                onChange={(key) =>
+                  setFilters({
+                    ...filters,
+                    distance: (key === 'any' ? null : Number(key)) as DistanceMiles,
+                  })
+                }
+                options={DistanceOptions.map((miles) => ({
+                  value: keyOf(miles),
+                  label: DistanceLabels[keyOf(miles)],
+                }))}
+              />
+              <IconButton
+                icon="sliders"
+                accessibilityLabel={
+                  filtersExpanded
+                    ? 'Hide more filters'
+                    : extras > 0
+                      ? `More filters, ${extras} on`
+                      : 'More filters'
+                }
+                onPress={() => setFiltersExpanded((open) => !open)}
+              />
+            </View>
+          ) : (
+            // Rather than showing a distance filter that silently does nothing.
+            // Both ways out are named, because the link below is the one that
+            // works without leaving the screen.
+            <Card>
+              <Text style={[text.meta, { color: colors.inkMuted }]}>
+                Set your town on Profile, or use your location, to filter by distance.
+              </Text>
+            </Card>
+          )}
+
+          {/* What the distances are measured from, under the control they govern. */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {locating ? (
+              <>
+                <ActivityIndicator size="small" />
+                <Text style={[text.meta, { color: colors.inkMuted }]}>Finding you…</Text>
+              </>
+            ) : (
+              <>
+                <Icon name="pin" size={16} color={colors.link} strokeWidth={2} />
+                <Text style={[text.meta, { color: colors.inkMuted }]}>
+                  {usingDeviceLocation && here
+                    ? 'Where you are now ·'
+                    : bearings.town
+                      ? `Near ${bearings.town} ·`
+                      : 'No town set ·'}
+                </Text>
+                {usingDeviceLocation && here ? (
+                  // Only when there is a town to go back to. Otherwise this would
+                  // offer to switch to nothing.
+                  bearings.home ? (
+                    <TextLink label="Use my town" onPress={() => setUsingDeviceLocation(false)} />
+                  ) : null
+                ) : (
+                  <TextLink label="Use my location" onPress={useDeviceLocation} />
+                )}
+              </>
+            )}
+          </View>
+
+          {locationError ? (
+            <Text style={[text.meta, { color: colors.danger }]}>{locationError}</Text>
+          ) : null}
         </View>
 
-        <BrowseFilterBar
-          filters={filters}
-          onChange={setFilters}
-          expanded={filtersExpanded}
-          onToggleExpanded={() => setFiltersExpanded((open) => !open)}
-          origin={{
-            hasHome: home !== null,
-            usingDevice: usingDeviceLocation && here !== null,
-            busy: locating,
-            error: locationError,
-            onUseDevice: useDeviceLocation,
-            onUseHome: () => setUsingDeviceLocation(false),
-          }}
-        />
+        {filtersExpanded ? <ExtraFilters filters={filters} onChange={setFilters} /> : null}
 
-        {error ? (
-          <ThemedText type="small" style={[styles.errorBanner, { color: theme.danger }]}>
-            {error}
-          </ThemedText>
-        ) : null}
+        {error ? <Text style={[text.meta, { color: colors.danger }]}>{error}</Text> : null}
+
+        <SegmentedControl
+          accessibilityLabel="Browse view"
+          value={browseView}
+          onChange={setBrowseView}
+          options={[
+            { value: 'list', label: 'List' },
+            { value: 'calendar', label: 'Calendar' },
+          ]}
+        />
 
         {isLoading ? (
-          <ActivityIndicator style={styles.spinner} />
-        ) : (
-          <FlatList
-            data={rows}
-            keyExtractor={(row) => row.key}
-            renderItem={({ item: row }) => {
-              if (row.kind === 'league') {
-                return (
-                  <LeagueCard
-                    league={row.league}
-                    distance={row.distance}
-                    now={loadedAt}
-                    busy={joiningLeagueId === row.league.id}
-                    onJoin={() => joinLeague(row.league.id)}
-                  />
-                );
+          <ActivityIndicator style={{ marginTop: 40 }} />
+        ) : browseView === 'calendar' ? (
+          <>
+            <MonthCalendar
+              month={calendarMonth}
+              onMonthChange={setCalendarMonth}
+              selected={selectedDay}
+              onSelectDate={setSelectedDay}
+              dotsByDay={dotsByDay}
+            />
+
+            <SectionHeader
+              title={
+                selectedDay
+                  ? selectedDay.toLocaleDateString(undefined, {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                    })
+                  : 'Pick a day'
               }
+              count={selectedDayMatches.length || undefined}
+            />
+            {selectedDayMatches.length > 0 ? (
+              selectedDayMatches.map((match) => matchRow(match))
+            ) : (
+              <Text style={[text.meta, { color: colors.inkMuted, textAlign: 'center' }]}>
+                {selectedDay ? 'No games that day.' : 'Tap a day to see what’s on.'}
+              </Text>
+            )}
 
-              // The same control on the card and inside its detail sheet, so
-              // reading a match through to the end is not a dead end.
-              const seat = (
-                <SeatButton
-                  match={row.match}
-                  userId={userId ?? ''}
-                  busy={busyMatchId === row.match.id}
-                  onJoin={() => changeSeat(row.match.id, joinMatch, true)}
-                  onLeave={() => changeSeat(row.match.id, leaveMatch)}
-                />
-              );
-
-              // My Matches' "add to calendar" button, offered here too once this
-              // member actually has a seat — hosting or freshly joined — rather
-              // than on every joinable card, where there is nothing yet worth
-              // putting in a calendar.
-              const sentToCalendar = calendarSent.has(row.match.id);
-              const canDiarise = isMember(row.match, userId ?? '');
-              const calendar = canDiarise ? (
-                <QuietButton
-                  icon={sentToCalendar ? 'calendarCheck' : 'calendarPlus'}
-                  label={
-                    sentToCalendar ? 'Already sent to calendar — send again' : 'Add to calendar'
+            {visibleLeagues.length > 0 ? (
+              <>
+                <SectionHeader title="Leagues near you" />
+                {visibleLeagues.map((league) => (
+                  <LeagueCard
+                    key={league.id}
+                    league={league}
+                    distance={leagueDistance(league, origin)}
+                    now={loadedAt}
+                    busy={joiningLeagueId === league.id}
+                    onJoin={() => joinLeague(league.id)}
+                  />
+                ))}
+              </>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {needsYou.length > 0 ? (
+              <>
+                <SectionHeader title="Needs you" count={needsYou.length} />
+                {needsYou.map((match) => (
+                  <NeedsSubCard
+                    key={match.id}
+                    date={new Date(match.date_time)}
+                    timeZone={match.time_zone}
+                    leagueColor={leagueEdge(match.league?.color)}
+                    whenPill={
+                      new Date(match.date_time).toDateString() === new Date(loadedAt).toDateString()
+                        ? 'Tonight'
+                        : new Date(match.date_time).toDateString() ===
+                            new Date(loadedAt + 86400000).toDateString()
+                          ? 'Tomorrow'
+                          : undefined
+                    }
+                    venue={match.location}
+                    meta={[match.location_detail, formatTimeOfDay(new Date(match.date_time))]
+                      .filter(Boolean)
+                      .join(' · ')}
+                    players={playersOf(match)}
+                    seats={SEATS_PER_MATCH}
+                    tableLabel={
+                      match.league
+                        ? `${match.league.name}${match.table_number ? ` · Table ${match.table_number}` : ''}`
+                        : 'Single match'
+                    }
+                    onTakeSeat={() => changeSeat(match.id, joinMatch, true)}
+                  />
+                ))}
+              </>
+            ) : (
+              <>
+                <NoOpenSeatsCard
+                  radiusLabel={
+                    filters.distance === null ? 'any distance' : DistanceLabels[keyOf(filters.distance)]
                   }
-                  onPress={() => sendToCalendar(row.match)}
-                  tone={sentToCalendar ? 'done' : 'accent'}
-                />
-              ) : null;
-              const showSeat = hasSeatControl(row.match, userId ?? '');
-              const footer =
-                calendar || showSeat ? (
-                  <>
-                    {calendar}
-                    {showSeat ? seat : null}
-                  </>
-                ) : undefined;
-
-              /**
-               * Inside the sheet the calendar hangs off this member's own roster
-               * row instead of the footer, so it sits where joining just put their
-               * name. A host who never took a seat has no such row — createMatch
-               * seats them by trigger, but `fetchMyMatches` still allows for the
-               * case — so for them it stays in the footer rather than vanishing.
-               */
-              const onRoster = isSeated(row.match, userId ?? '');
-              const detailCalendar = canDiarise && !onRoster ? calendar : null;
-              const detailFooter =
-                detailCalendar || showSeat ? (
-                  <>
-                    {detailCalendar}
-                    {showSeat ? seat : null}
-                  </>
-                ) : undefined;
-
-              return (
-                <MatchCard
-                  match={row.match}
-                  userId={userId ?? ''}
-                  distance={row.distance}
-                  now={loadedAt}
-                  // Passed for every card; the sheet shows the control only to the
-                  // host, and only while the match is still to be played.
-                  onEdit={() => setEditingMatchId(row.match.id)}
-                  action={footer}
-                  // Undefined rather than an element that renders nothing, so the
-                  // sheet knows whether it has a footer to draw at all.
-                  detailAction={detailFooter}
-                  calendarSent={sentToCalendar}
-                  onAddToCalendar={
-                    canDiarise && onRoster ? () => sendToCalendar(row.match) : undefined
+                  nextRadiusLabel={widenLabel}
+                  onPropose={() => setIsProposing(true)}
+                  onWiden={
+                    widenLabel ? () => setFilters({ ...filters, distance: nextDistance }) : undefined
                   }
                 />
-              );
-            }}
-            contentContainerStyle={styles.listContent}
-            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}
-            ListEmptyComponent={
-              <View style={styles.empty}>
-                {/* Something to look at where there was previously one grey line
-                    of text in the middle of a blank screen. */}
-                <Ribbon width={120} height={160} opacity={0.5} />
-                <ThemedText style={styles.centered} themeColor="textSecondary">
-                  {hiddenByFilters > 0
-                    ? `Nothing fits these filters. ${hiddenByFilters} ${
-                        hiddenByFilters === 1 ? 'is' : 'are'
-                      } hidden — try a wider distance.`
-                    : 'No upcoming matches. Propose one to get a table going.'}
-                </ThemedText>
-              </View>
-            }
-          />
+                {/* Says which of the two empty states this is: nothing on at all,
+                    or a filter hiding what there is. */}
+                {hiddenByFilters > 0 ? (
+                  <Text style={[text.meta, { color: colors.inkMuted, textAlign: 'center' }]}>
+                    {hiddenByFilters} {hiddenByFilters === 1 ? 'is' : 'are'} hidden by your filters.
+                  </Text>
+                ) : null}
+              </>
+            )}
+
+            {alsoOn.length > 0 ? (
+              <>
+                <SectionHeader
+                  title={needsYou.length > 0 ? 'Also on' : 'Meanwhile'}
+                  count={alsoOn.length}
+                />
+                {alsoOn.map((match) => matchRow(match))}
+              </>
+            ) : null}
+
+            {visibleLeagues.length > 0 ? (
+              <>
+                <SectionHeader title="Leagues near you" />
+                {visibleLeagues.map((league) => (
+                  <LeagueCard
+                    key={league.id}
+                    league={league}
+                    distance={leagueDistance(league, origin)}
+                    now={loadedAt}
+                    busy={joiningLeagueId === league.id}
+                    onJoin={() => joinLeague(league.id)}
+                  />
+                ))}
+              </>
+            ) : null}
+          </>
         )}
+      </ScreenScaffold>
 
-        {/* Keyed on open so each visit starts from a blank form: the sheet reads
-            its initial state once, when it mounts. */}
-        <MatchSheet
-          key={isProposing ? 'proposing' : 'closed'}
-          hostId={userId}
-          match={null}
-          visible={isProposing}
-          onClose={() => setIsProposing(false)}
-          onSaved={async () => {
-            setIsProposing(false);
-            await load();
-          }}
-        />
+      {/* Keyed on open so each visit starts from a blank form: the sheet reads
+          its initial state once, when it mounts. */}
+      <MatchSheet
+        key={isProposing ? 'proposing' : 'closed'}
+        hostId={userId}
+        match={null}
+        visible={isProposing}
+        onClose={() => setIsProposing(false)}
+        onSaved={async () => {
+          setIsProposing(false);
+          await load();
+        }}
+      />
 
-        {/* Editing, for a host who opened their own match from this screen. Read
-            from the freshly loaded list rather than captured when the button was
-            pressed, so the form shows current seats; keyed on the match so it is
-            rebuilt from that match's details rather than the last one's. */}
-        <MatchSheet
-          key={`edit-${editingMatchId ?? 'none'}`}
-          hostId={userId}
-          match={matches.find((match) => match.id === editingMatchId) ?? null}
-          visible={editingMatchId !== null}
-          onClose={() => setEditingMatchId(null)}
-          onSaved={async () => {
-            setEditingMatchId(null);
-            await load();
-          }}
-        />
-      </SafeAreaView>
-    </ThemedView>
+      {/* Editing, for a host who opened their own match from this screen. Read
+          from the freshly loaded list rather than captured when the button was
+          pressed, so the form shows current seats; keyed on the match so it is
+          rebuilt from that match's details rather than the last one's. */}
+      <MatchSheet
+        key={`edit-${editingMatchId ?? 'none'}`}
+        hostId={userId}
+        match={matches.find((match) => match.id === editingMatchId) ?? null}
+        visible={editingMatchId !== null}
+        onClose={() => setEditingMatchId(null)}
+        onSaved={async () => {
+          setEditingMatchId(null);
+          await load();
+        }}
+      />
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  safeArea: {
-    flex: 1,
-    width: '100%',
-    maxWidth: MaxContentWidth,
-  },
-  header: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.four,
-    paddingBottom: Spacing.three,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.three,
-  },
-  headerText: {
-    flex: 1,
-  },
-  /** Same gutters as the header above it and the filter bar below. */
-  setupPrompt: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: Spacing.three,
-  },
-  subtitle: {
-    marginTop: 2,
-  },
-  filterBar: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    paddingBottom: Spacing.three,
-  },
-  filterChip: {
-    paddingVertical: Spacing.two,
-    minHeight: 40,
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.three,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-  },
-  errorBanner: {
-    marginHorizontal: Spacing.four,
-    marginBottom: Spacing.two,
-  },
-  listContent: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.four,
-    gap: Spacing.three,
-  },
-  /** Same scale as the host controls on My Matches, so cards read consistently. */
-  seatButton: {
-    paddingVertical: Spacing.one,
-    minHeight: 34,
-    minWidth: 104,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.three,
-    borderRadius: Radius.pill,
-  },
-  /** Leaving is not the encouraged action, so it gets an outline, not a fill. */
-  outlined: {
-    borderWidth: 1,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  empty: {
-    marginTop: Spacing.five,
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  centered: {
-    textAlign: 'center',
-  },
-  spinner: {
-    marginTop: Spacing.six,
-  },
-});

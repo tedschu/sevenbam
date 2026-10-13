@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Radius, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { colors, radius, shadow } from '@/constants/design';
 import { MinPlaceQuery, searchPlaces, type PlaceKind, type PlaceSuggestion } from '@/lib/places';
 
 /** Long enough that typing a venue name is one lookup, not eight billable ones. */
@@ -44,7 +43,6 @@ export function PlaceAutocompleteInput({
   hint?: string;
   kind: PlaceKind;
 }) {
-  const theme = useTheme();
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
@@ -123,7 +121,7 @@ export function PlaceAutocompleteInput({
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={theme.placeholder}
+          placeholderTextColor={colors.placeholder}
           autoCorrect={false}
           onFocus={() => {
             if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
@@ -132,13 +130,10 @@ export function PlaceAutocompleteInput({
           onBlur={() => {
             blurTimerRef.current = setTimeout(() => setIsEditing(false), BlurCloseMs);
           }}
-          style={[
-            styles.input,
-            { color: theme.text, backgroundColor: theme.background, borderColor: theme.rule },
-          ]}
+          style={styles.input}
         />
         {isSearching ? (
-          <ActivityIndicator style={styles.spinner} size="small" color={theme.textSecondary} />
+          <ActivityIndicator style={styles.spinner} size="small" color={colors.inkMuted} />
         ) : null}
       </View>
 
@@ -146,18 +141,14 @@ export function PlaceAutocompleteInput({
           positioned menu is clipped by the scroll views these fields sit in on
           Android, and pushing the next field down is the lesser problem. */}
       {suggestions.length > 0 ? (
-        <View
-          style={[
-            styles.suggestions,
-            { backgroundColor: theme.background, borderColor: theme.rule },
-          ]}>
+        <View style={styles.suggestions}>
           {suggestions.map((suggestion, index) => (
             <Pressable
               key={suggestion.placeId}
               onPress={() => pick(suggestion)}
               style={({ pressed }) => [
                 styles.suggestion,
-                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.rule },
+                index > 0 && { borderTopWidth: 1, borderTopColor: colors.divider },
                 pressed && styles.pressed,
               ]}>
               <ThemedText type="defaultSemiBold" numberOfLines={1}>
@@ -197,37 +188,40 @@ export function PlaceAutocompleteInput({
 
 const styles = StyleSheet.create({
   field: {
-    gap: Spacing.one,
+    gap: 4,
   },
   inputRow: {
     justifyContent: 'center',
   },
+  /** The same filled well as every other field on the redesign — see login.tsx. */
   input: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Radius.small,
-    // Bordered rather than relying on a fill, so the same field reads as a field
-    // on a white sheet and on the tinted page behind the screens.
-    borderWidth: StyleSheet.hairlineWidth,
+    height: 48,
+    paddingHorizontal: 14,
+    borderRadius: radius.inset,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.track,
     fontSize: 16,
+    color: colors.ink,
   },
   spinner: {
     position: 'absolute',
-    right: Spacing.three,
+    right: 14,
   },
   suggestions: {
-    borderRadius: Radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.card,
+    backgroundColor: colors.surface,
     overflow: 'hidden',
+    ...shadow.card,
   },
   suggestion: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
     minHeight: 44,
     justifyContent: 'center',
   },
   attribution: {
-    paddingHorizontal: Spacing.three,
+    paddingHorizontal: 14,
   },
   pressed: {
     opacity: 0.7,

@@ -3,8 +3,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
-import { Radius, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { colors, radius } from '@/constants/design';
+import { Spacing } from '@/constants/theme';
 import { fetchMyEmail, openGroupEmail, type Recipient } from '@/lib/contact';
 
 /**
@@ -33,7 +33,6 @@ export function EmailGroupButton({
   /** A prefilled draft. The host writes above the details rather than assembling them. */
   body: string;
 }) {
-  const theme = useTheme();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -76,12 +75,11 @@ export function EmailGroupButton({
         accessibilityLabel={label}
         style={({ pressed }) => [
           styles.button,
-          { borderColor: theme.rule },
           pressed && styles.pressed,
           busy && styles.disabled,
         ]}>
-        <Icon name="mail" color={theme.accentInk} size={16} />
-        <ThemedText type="smallBold" style={{ color: theme.accentInk }}>
+        <Icon name="mail" color={colors.ink} size={16} />
+        <ThemedText type="smallBold" style={{ color: colors.ink }}>
           {busy ? 'Opening…' : label}
         </ThemedText>
       </Pressable>
@@ -99,20 +97,28 @@ const styles = StyleSheet.create({
   wrap: {
     gap: Spacing.two,
   },
-  /** Outlined: it hands off to another app, like the map link, rather than acting here. */
+  /**
+   * The kit's "soft" button, full width — §4.5. Kept as a stylesheet entry
+   * rather than moved onto `components/kit/controls.tsx`'s `Button`, whose
+   * `onPress` is a plain callback: this control's own press does the fetch,
+   * the empty-recipients check and the `mailto:` truncation note, none of
+   * which the kit button has anywhere to put.
+   */
   button: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: Spacing.two,
-    minHeight: 40,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    gap: 6,
+    minHeight: 48,
+    paddingHorizontal: 16,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderRadius: Radius.pill,
+    borderColor: colors.track,
+    borderRadius: radius.pill,
   },
   pressed: {
-    opacity: 0.7,
+    opacity: 0.85,
   },
   disabled: {
     opacity: 0.5,
