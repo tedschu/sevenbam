@@ -11,6 +11,7 @@
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.sevenbam.app",
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -42,6 +43,13 @@
           "backgroundColor": "#ffffff",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
+        }
+      ],
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.371987596215-ij5ljjopg1hjg28liksdotni5kj7kvd5"
         }
       ]
     ],

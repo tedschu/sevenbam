@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -14,8 +14,10 @@ import {
   describeAuthError,
   linkErrorFromUrl,
   sendPasswordReset,
+  signInWithApple,
   signInWithGoogle,
 } from '@/lib/auth';
+import { appleSignInAvailable } from '@/lib/native-sign-in';
 import { describeMissing, type Intent } from '@/lib/credentials';
 import { supabase } from '@/lib/supabase';
 import { AnimatedIcon } from '@/components/animated-icon';
@@ -23,6 +25,7 @@ import { GoogleMark } from '@/components/google-mark';
 import { Button, GradientButton, SegmentedControl, TextLink } from '@/components/kit/controls';
 import { Card } from '@/components/kit/layout';
 import { Ribbon } from '@/components/kit/ribbon';
+import { AppleButton } from '@/components/apple-button';
 import { colors, pillTones, radius, text } from '@/constants/design';
 
 /**
@@ -69,6 +72,12 @@ export default function LoginScreen() {
    * this member typed was refused.
    */
   const [signInRefused, setSignInRefused] = useState(false);
+
+  /** Asked once rather than assumed from the platform: an iPhone with no Apple Account signed in says no. */
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  useEffect(() => {
+    appleSignInAvailable().then(setAppleAvailable, () => setAppleAvailable(false));
+  }, []);
 
   const isSignUp = mode === 'signUp';
   const isReset = mode === 'reset';
@@ -135,11 +144,11 @@ export default function LoginScreen() {
     }
   };
 
-  const continueWithGoogle = async () => {
+  const continueWith = (signIn: () => Promise<void>) => async () => {
     setLoading(true);
     setError(null);
     try {
-      await signInWithGoogle();
+      await signIn();
     } catch (cause) {
       setError(describeAuthError(cause));
     } finally {
@@ -238,8 +247,9 @@ export default function LoginScreen() {
                   out who is a member and how they sign in. */}
               {isReset ? (
                 <Text style={styles.help}>
-                  If you use the Continue with Google button, there is no password on
-                  your account to reset — go back and use it instead.
+                  If you use the Continue with Google or Continue with Apple button,
+                  there is no password on your account to reset — go back and use it
+                  instead.
                 </Text>
               ) : null}
 
@@ -274,12 +284,18 @@ export default function LoginScreen() {
 
                   <View style={styles.divider} />
 
+                  {/* First of the two because App Review asks that it be at least as
+                      prominent as Google, and because it is the one that can keep an
+                      address private. */}
+                  {appleAvailable ? (
+                    <AppleButton onPress={continueWith(signInWithApple)} disabled={loading} />
+                  ) : null}
                   <Button
                     variant="outline"
                     size="md"
                     label="Continue with Google"
                     leading={<GoogleMark />}
-                    onPress={continueWithGoogle}
+                    onPress={continueWith(signInWithGoogle)}
                     disabled={loading}
                   />
                   <Text style={[styles.help, styles.centredText]}>

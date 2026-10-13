@@ -30,12 +30,12 @@ export type Profile = {
 /**
  * How an account gets in.
  *
- * `google` means there is no password to forget: the account was created by Google
- * and signs in through it. Worth naming on screen, because a member who does not know
- * which of the two they are will ask for a reset link for a password that has never
- * existed — a support conversation nobody can win.
+ * `google` and `apple` mean there is no password to forget: the account was created
+ * by one of them and signs in through it. Worth naming on screen, because a member
+ * who does not know which kind they are will ask for a reset link for a password that
+ * has never existed — a support conversation nobody can win.
  */
-export type SignInMethod = 'google' | 'password';
+export type SignInMethod = 'google' | 'apple' | 'password';
 
 /**
  * Read from the identities on the auth account rather than from
@@ -44,7 +44,10 @@ export type SignInMethod = 'google' | 'password';
  */
 function signInMethodOf(user: User): SignInMethod {
   const providers = (user.identities ?? []).map((identity) => identity.provider);
-  return providers.includes('google') && !providers.includes('email') ? 'google' : 'password';
+  if (providers.includes('email')) return 'password';
+  if (providers.includes('google')) return 'google';
+  if (providers.includes('apple')) return 'apple';
+  return 'password';
 }
 
 /**

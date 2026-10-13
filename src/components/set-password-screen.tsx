@@ -82,6 +82,8 @@ export function SetPasswordScreen({ onDone }: { onDone: () => void }) {
     onDone();
   };
 
+  const provider = method === 'apple' ? 'Apple' : 'Google';
+
   return (
     <View style={styles.container}>
       <Ribbon variant="hero" />
@@ -90,11 +92,11 @@ export function SetPasswordScreen({ onDone }: { onDone: () => void }) {
         <View style={styles.brand}>
           <Text style={styles.wordmark}>SEVEN BAM</Text>
           <Text style={[text.bodyStrong, { color: colors.link }]}>
-            {method === 'google' ? 'Nothing to reset' : 'Choose a new password'}
+            {method === 'google' || method === 'apple' ? 'Nothing to reset' : 'Choose a new password'}
           </Text>
         </View>
 
-        {method === null ? null : method === 'google' ? (
+        {method === null ? null : method === 'google' || method === 'apple' ? (
           /* The answer to the support thread that started this. A member asked for a
              reset link, followed it, and found herself simply signed in — because her
              account is a Google one and there has never been a password on it. Now the
@@ -102,11 +104,11 @@ export function SetPasswordScreen({ onDone }: { onDone: () => void }) {
              trying to get to anyway. */
           <Card padding={20} gap={14} style={styles.formCard}>
             <Text style={[text.meta, { color: colors.inkMuted }]}>
-              You sign in to Seven Bam with Google, so there is no password on this
+              You sign in to Seven Bam with {provider}, so there is no password on this
               account to reset. Nothing has gone wrong, and nothing needs changing.
             </Text>
             <Text style={[text.meta, { color: colors.inkMuted }]}>
-              Next time, use the Continue with Google button on the sign-in screen.
+              Next time, use the Continue with {provider} button on the sign-in screen.
             </Text>
             <GradientButton label="Continue to Seven Bam" onPress={skip} />
           </Card>
