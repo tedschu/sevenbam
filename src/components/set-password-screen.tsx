@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { GradientButton, OutlineButton } from './button';
-import { CornerRibbon } from './ribbon';
-import { ThemedText } from './themed-text';
-import { ThemedView } from './themed-view';
-
-import { Radius, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Button, GradientButton } from '@/components/kit/controls';
+import { Card } from '@/components/kit/layout';
+import { Ribbon } from '@/components/kit/ribbon';
+import { colors, radius, text } from '@/constants/design';
 import { cancelPasswordReset, describeAuthError, updatePassword } from '@/lib/auth';
 import { fetchMySignInMethod, type SignInMethod } from '@/lib/profile';
 
@@ -27,7 +24,6 @@ import { fetchMySignInMethod, type SignInMethod } from '@/lib/profile';
  * arriving from an email feels like arriving at the app rather than at a form.
  */
 export function SetPasswordScreen({ onDone }: { onDone: () => void }) {
-  const theme = useTheme();
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
@@ -87,17 +83,15 @@ export function SetPasswordScreen({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <ThemedView type="backgroundElement" style={styles.container}>
-      <CornerRibbon />
+    <View style={styles.container}>
+      <Ribbon variant="hero" />
 
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.brand}>
-          <ThemedText type="title" style={styles.wordmark}>
-            SEVEN BAM
-          </ThemedText>
-          <ThemedText type="smallBold" style={{ color: theme.accentInk }}>
+          <Text style={styles.wordmark}>SEVEN BAM</Text>
+          <Text style={[text.bodyStrong, { color: colors.link }]}>
             {method === 'google' ? 'Nothing to reset' : 'Choose a new password'}
-          </ThemedText>
+          </Text>
         </View>
 
         {method === null ? null : method === 'google' ? (
@@ -106,86 +100,65 @@ export function SetPasswordScreen({ onDone }: { onDone: () => void }) {
              account is a Google one and there has never been a password on it. Now the
              link says so, on the account it was sent for, and puts her where she was
              trying to get to anyway. */
-          <ThemedView style={[styles.formCard, { borderColor: theme.rule }]}>
-            <ThemedText type="small" themeColor="textSecondary">
+          <Card padding={20} gap={14} style={styles.formCard}>
+            <Text style={[text.meta, { color: colors.inkMuted }]}>
               You sign in to Seven Bam with Google, so there is no password on this
               account to reset. Nothing has gone wrong, and nothing needs changing.
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
+            </Text>
+            <Text style={[text.meta, { color: colors.inkMuted }]}>
               Next time, use the Continue with Google button on the sign-in screen.
-            </ThemedText>
-            <GradientButton label="Continue to Seven Bam" onPress={skip} wide />
-          </ThemedView>
+            </Text>
+            <GradientButton label="Continue to Seven Bam" onPress={skip} />
+          </Card>
         ) : (
-          <ThemedView style={[styles.formCard, { borderColor: theme.rule }]}>
+          <Card padding={20} gap={14} style={styles.formCard}>
             <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: theme.backgroundElement,
-                  color: theme.text,
-                  borderColor: tooShort ? theme.danger : theme.rule,
-                },
-              ]}
+              style={[styles.input, tooShort && { borderColor: colors.danger }]}
               value={password}
               onChangeText={setPassword}
               secureTextEntry
               placeholder="New password"
               autoCapitalize="none"
-              placeholderTextColor={theme.placeholder}
+              placeholderTextColor={colors.placeholder}
             />
             <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: theme.backgroundElement,
-                  color: theme.text,
-                  borderColor: mismatch ? theme.danger : theme.rule,
-                },
-              ]}
+              style={[styles.input, mismatch && { borderColor: colors.danger }]}
               value={confirmation}
               onChangeText={setConfirmation}
               secureTextEntry
               placeholder="Type it again"
               autoCapitalize="none"
-              placeholderTextColor={theme.placeholder}
+              placeholderTextColor={colors.placeholder}
             />
 
             {/* One line at a time, and only once there is something to say about —
                 telling somebody their password is too short before they have finished
                 typing it is just noise. */}
-            <ThemedText type="small" themeColor="textSecondary">
+            <Text style={[text.meta, { color: colors.inkMuted }]}>
               {tooShort
                 ? 'At least six characters.'
                 : mismatch
                   ? 'The two do not match yet.'
                   : 'At least six characters. You will stay signed in afterwards.'}
-            </ThemedText>
+            </Text>
 
-            <GradientButton
-              label="Save password"
-              onPress={save}
-              busy={busy}
-              disabled={!ready}
-              wide
-            />
-            <OutlineButton label="Skip for now" onPress={skip} disabled={busy} wide />
+            <GradientButton label="Save password" onPress={save} busy={busy} disabled={!ready} />
+            <Button variant="outline" size="md" label="Skip for now" onPress={skip} disabled={busy} />
 
             {error ? (
-              <ThemedText type="small" style={[styles.error, { color: theme.danger }]}>
-                {error}
-              </ThemedText>
+              <Text style={[text.meta, { color: colors.danger, textAlign: 'center' }]}>{error}</Text>
             ) : null}
-          </ThemedView>
+          </Card>
         )}
       </SafeAreaView>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
@@ -193,32 +166,31 @@ const styles = StyleSheet.create({
   safeArea: {
     width: '100%',
     maxWidth: 400,
-    padding: Spacing.four,
+    padding: 24,
     alignItems: 'center',
-    gap: Spacing.four,
+    gap: 24,
   },
   brand: {
     alignItems: 'center',
-    gap: Spacing.one,
+    gap: 4,
   },
   wordmark: {
+    ...text.display,
+    color: colors.ink,
     textAlign: 'center',
-    letterSpacing: 0.5,
   },
   formCard: {
     alignSelf: 'stretch',
-    padding: Spacing.four,
-    borderRadius: Radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: Spacing.three,
   },
   input: {
-    padding: Spacing.three,
-    borderRadius: Radius.small,
-    borderWidth: 1,
+    ...text.body,
     fontSize: 16,
-  },
-  error: {
-    textAlign: 'center',
+    color: colors.ink,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.track,
+    borderRadius: radius.inset,
+    paddingHorizontal: 14,
+    height: 48,
   },
 });

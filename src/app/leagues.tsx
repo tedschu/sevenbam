@@ -1,35 +1,27 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  TextInput,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 
-import { GradientButton } from '@/components/button';
 import { LeagueDetail } from '@/components/league-detail';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { initialsOf } from '@/components/match-card';
+import { LeagueRowCard } from '@/components/kit/cards';
+import { Button, GradientButton, Toggle } from '@/components/kit/controls';
 import {
-  BottomTabInset,
-  CardShadow,
-  LeagueColorNames,
-  LeagueColors,
-  MaxContentWidth,
-  OnAccent,
-  Radius,
-  Spacing,
-  type LeagueColor,
-} from '@/constants/theme';
+  Card,
+  ScreenHeader,
+  ScreenScaffold,
+  SectionHeader,
+  TitleBlock,
+} from '@/components/kit/layout';
+import { colors, radius, text } from '@/constants/design';
+import { LeagueColorNames, LeagueColors, type LeagueColor } from '@/constants/theme';
 import { useGlobalView } from '@/hooks/use-global-view';
-import { useTheme } from '@/hooks/use-theme';
+import { useNeedsProfileSetup } from '@/hooks/use-profile-setup';
 import { createLeague, fetchMyLeagues, type MyLeague } from '@/lib/leagues';
+import { fetchMyBearings } from '@/lib/profile';
 import { supabase } from '@/lib/supabase';
+
+const AppMark = require('@/assets/images/app-mark.png');
 
 /**
  * Creating a league: what it is called, what colour it is, and whether anyone can
@@ -48,7 +40,6 @@ function NewLeagueForm({
   onCancel: () => void;
   busy: boolean;
 }) {
-  const theme = useTheme();
   const [name, setName] = useState('');
   const [color, setColor] = useState<LeagueColor>('blue');
   // Private by default. Making a group of people discoverable is a choice someone
@@ -56,90 +47,98 @@ function NewLeagueForm({
   const [isPublic, setIsPublic] = useState(false);
   const [maxMembers, setMaxMembers] = useState('');
 
+  const field = {
+    ...text.body,
+    fontSize: 16,
+    color: colors.ink,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.track,
+    borderRadius: radius.inset,
+    paddingHorizontal: 14,
+    height: 48,
+  } as const;
+  const label = [text.caption, { color: colors.inkMuted, letterSpacing: 0.6 }];
+
   return (
-    <ThemedView type="background" style={[styles.card, { borderColor: theme.rule }]}>
-      <ThemedText type="label" themeColor="textSecondary">
-        League name
-      </ThemedText>
-      <TextInput
-        value={name}
-        onChangeText={setName}
-        placeholder="Fox Valley League"
-        placeholderTextColor={theme.placeholder}
-        style={[styles.input, { color: theme.text, borderColor: theme.rule }]}
-      />
-
-      <ThemedText type="label" themeColor="textSecondary">
-        Colour
-      </ThemedText>
-      <View style={styles.swatches}>
-        {LeagueColorNames.map((option) => (
-          <Pressable
-            key={option}
-            onPress={() => setColor(option)}
-            accessibilityRole="button"
-            accessibilityLabel={option}
-            style={({ pressed }) => pressed && styles.pressed}>
-            <View
-              style={[
-                styles.swatch,
-                { backgroundColor: LeagueColors[option] },
-                color === option && { borderColor: theme.text, borderWidth: 3 },
-              ]}
-            />
-          </Pressable>
-        ))}
-      </View>
-
-      <View style={styles.toggleRow}>
-        <View style={styles.toggleText}>
-          <ThemedText type="label" themeColor="textSecondary">
-            Open to join
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {isPublic
-              ? 'Anyone signed in can find this league in Browse and join it.'
-              : 'Invite-only. Only people you send the link to can join.'}
-          </ThemedText>
-        </View>
-        <Switch
-          value={isPublic}
-          onValueChange={setIsPublic}
-          trackColor={{ true: theme.accent, false: theme.rule }}
+    <Card gap={16}>
+      <View style={{ gap: 6 }}>
+        <Text style={label}>LEAGUE NAME</Text>
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          placeholder="Fox Valley League"
+          placeholderTextColor={colors.placeholder}
+          style={field}
         />
       </View>
+
+      <View style={{ gap: 8 }}>
+        <Text style={label}>COLOUR</Text>
+        {/* The colour is the league's identity everywhere else — its dot in a meta
+            line, the edge under every one of its date tiles — so it is picked as
+            the colour itself rather than from a list of names. */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {LeagueColorNames.map((option) => (
+            <Pressable
+              key={option}
+              onPress={() => setColor(option)}
+              accessibilityRole="button"
+              accessibilityLabel={option}
+              accessibilityState={{ selected: color === option }}
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+              <View
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 17,
+                  backgroundColor: LeagueColors[option],
+                  borderWidth: color === option ? 3 : 0,
+                  borderColor: colors.ink,
+                }}
+              />
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <Toggle
+        value={isPublic}
+        onValueChange={setIsPublic}
+        label="Open to join"
+        description={
+          isPublic
+            ? 'Anyone signed in can find this league in Browse and join it.'
+            : 'Invite-only. Only people you send the link to can join.'
+        }
+      />
 
       {/* Only relevant once the league is discoverable — a private league's size
           is governed by who you send the link to. */}
       {isPublic ? (
-        <View style={styles.field}>
-          <ThemedText type="label" themeColor="textSecondary">
-            Member limit
-          </ThemedText>
+        <View style={{ gap: 6 }}>
+          <Text style={label}>MEMBER LIMIT</Text>
           <TextInput
             value={maxMembers}
             onChangeText={(next) => setMaxMembers(next.replace(/[^0-9]/g, ''))}
             placeholder="No limit"
             keyboardType="number-pad"
-            placeholderTextColor={theme.placeholder}
-            style={[styles.input, { color: theme.text, borderColor: theme.rule }]}
+            placeholderTextColor={colors.placeholder}
+            style={field}
           />
-          <ThemedText type="small" themeColor="textSecondary">
-            Browse stops offering the league once it is full. Leave blank for no
-            limit.
-          </ThemedText>
+          <Text style={[text.caption, { color: colors.inkMuted }]}>
+            Browse stops offering the league once it is full. Leave blank for no limit.
+          </Text>
         </View>
       ) : null}
 
-      <View style={styles.formActions}>
-        <Pressable onPress={onCancel} style={({ pressed }) => pressed && styles.pressed}>
-          <ThemedView type="backgroundElement" style={styles.secondaryButton}>
-            <ThemedText type="label" themeColor="textSecondary">
-              Cancel
-            </ThemedText>
-          </ThemedView>
-        </Pressable>
-        <Pressable
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Button variant="soft" size="md" label="Cancel" onPress={onCancel} style={{ flex: 1 }} />
+        <GradientButton
+          size="md"
+          label="Create league"
+          busy={busy}
+          disabled={name.trim().length === 0}
           onPress={() =>
             onCreate(name, color, {
               is_public: isPublic,
@@ -148,21 +147,10 @@ function NewLeagueForm({
               max_members: isPublic && maxMembers ? Number(maxMembers) : null,
             })
           }
-          disabled={busy || name.trim().length === 0}
-          style={({ pressed }) => pressed && styles.pressed}>
-          <View
-            style={[
-              styles.primaryButton,
-              { backgroundColor: LeagueColors[color] },
-              (busy || name.trim().length === 0) && styles.disabled,
-            ]}>
-            <ThemedText type="label" style={styles.primaryLabel}>
-              {busy ? 'Creating…' : 'Create league'}
-            </ThemedText>
-          </View>
-        </Pressable>
+          style={{ flex: 1 }}
+        />
       </View>
-    </ThemedView>
+    </Card>
   );
 }
 
@@ -172,38 +160,36 @@ function NewLeagueForm({
  * its own would suggest there is still something to organize.
  */
 function LeagueRow({ league, onPress }: { league: MyLeague; onPress: () => void }) {
-  const theme = useTheme();
-  const tint = LeagueColors[league.color] ?? theme.accent;
   const isArchived = league.archived_at !== null;
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
-      <ThemedView
-        type="background"
-        style={[styles.leagueCard, { borderLeftColor: tint }, isArchived && styles.muted]}>
-        <ThemedText type="subtitle" numberOfLines={1}>
-          {league.name}
-        </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {isArchived ? 'Archived · ' : ''}
-          {/* A viewer is an admin in global view looking at a league they are not
-              in. Said plainly, because a list that mixes leagues you belong to
-              with leagues you are only reading has to tell them apart. */}
-          {league.role === 'organizer'
-            ? 'You organize this'
-            : league.role === 'viewer'
-              ? 'Not a member — viewing'
-              : 'Member'}
-        </ThemedText>
-      </ThemedView>
-    </Pressable>
+    <LeagueRowCard
+      name={league.name}
+      muted={isArchived}
+      /* A viewer is an admin in global view looking at a league they are not in.
+         Said plainly, because a list that mixes leagues you belong to with
+         leagues you are only reading has to tell them apart. */
+      status={
+        league.role === 'organizer'
+          ? 'You organize this'
+          : league.role === 'viewer'
+            ? 'Not a member — viewing'
+            : 'Member'
+      }
+      meta={isArchived ? 'Archived · standings still count' : 'Seasons, meetups and standings'}
+      onPress={onPress}
+    />
   );
 }
 
 export default function LeaguesScreen() {
   const globalView = useGlobalView();
-  const theme = useTheme();
+  const needsSetup = useNeedsProfileSetup();
   const [leagues, setLeagues] = useState<MyLeague[]>([]);
+  const [me, setMe] = useState<{ name: string | null; avatarUrl: string | null }>({
+    name: null,
+    avatarUrl: null,
+  });
   const [userId, setUserId] = useState<string | null>(null);
   const [openLeagueId, setOpenLeagueId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -223,6 +209,7 @@ export default function LeaguesScreen() {
       }
 
       setUserId(user.id);
+      setMe(await fetchMyBearings(user.id));
       setLeagues(await fetchMyLeagues(user.id, globalView));
       setError(null);
     } catch (cause) {
@@ -280,196 +267,63 @@ export default function LeaguesScreen() {
 
   if (openLeague && userId) {
     return (
-      <ThemedView type="backgroundElement" style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
-          <LeagueDetail
-            league={openLeague}
-            userId={userId}
-            onBack={() => setOpenLeagueId(null)}
-            onChanged={load}
-          />
-        </SafeAreaView>
-      </ThemedView>
+      <LeagueDetail
+        league={openLeague}
+        userId={userId}
+        onBack={() => setOpenLeagueId(null)}
+        onChanged={load}
+      />
     );
   }
 
   return (
-    <ThemedView type="backgroundElement" style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.header}>
-            <ThemedText type="label" themeColor="accentAltInk">
-              {leagues.length === 0
-                ? 'Not in a league'
-                : `${leagues.length} ${leagues.length === 1 ? 'league' : 'leagues'}`}
-            </ThemedText>
-            <ThemedText type="title">Leagues</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-              Seasons, meetups, and standings of their own
-            </ThemedText>
-          </View>
+    <ScreenScaffold ribbon="compact">
+      <ScreenHeader
+        logo={AppMark}
+        initials={initialsOf(me.name)}
+        photoUrl={me.avatarUrl}
+        badge={needsSetup}
+        onProfilePress={() => router.push('/profile')}
+      />
 
-          {error ? (
-            <ThemedText type="small" style={{ color: theme.danger }}>
-              {error}
-            </ThemedText>
-          ) : null}
+      <TitleBlock
+        eyebrow={
+          leagues.length === 0
+            ? 'Not in a league'
+            : `${leagues.length} ${leagues.length === 1 ? 'league' : 'leagues'}`
+        }
+        title="Leagues"
+        subtitle="Seasons, meetups, and standings of their own"
+      />
 
-          {isLoading ? <ActivityIndicator style={styles.centered} /> : null}
+      {error ? <Text style={[text.meta, { color: colors.danger }]}>{error}</Text> : null}
 
-          {live.map((league) => (
-            <LeagueRow
-              key={league.id}
-              league={league}
-              onPress={() => setOpenLeagueId(league.id)}
-            />
+      {isLoading ? <ActivityIndicator style={{ marginTop: 40 }} /> : null}
+
+      {live.map((league) => (
+        <LeagueRow key={league.id} league={league} onPress={() => setOpenLeagueId(league.id)} />
+      ))}
+
+      {archived.length > 0 ? (
+        <>
+          <SectionHeader title="Archived" />
+          {archived.map((league) => (
+            <LeagueRow key={league.id} league={league} onPress={() => setOpenLeagueId(league.id)} />
           ))}
+        </>
+      ) : null}
 
-          {archived.length > 0 ? (
-            <>
-              <ThemedText type="label" themeColor="textSecondary" style={styles.groupHeader}>
-                Archived
-              </ThemedText>
-              {archived.map((league) => (
-                <LeagueRow
-                  key={league.id}
-                  league={league}
-                  onPress={() => setOpenLeagueId(league.id)}
-                />
-              ))}
-            </>
-          ) : null}
+      {isCreating ? (
+        <NewLeagueForm onCreate={create} onCancel={() => setIsCreating(false)} busy={busy} />
+      ) : (
+        <GradientButton icon="plus" label="New league" onPress={() => setIsCreating(true)} />
+      )}
 
-          {isCreating ? (
-            <NewLeagueForm
-              onCreate={create}
-              onCancel={() => setIsCreating(false)}
-              busy={busy}
-            />
-          ) : (
-            <GradientButton label="New league" onPress={() => setIsCreating(true)} wide />
-          )}
-
-          {!isLoading && leagues.length === 0 && !isCreating ? (
-            <ThemedText type="small" themeColor="textSecondary" style={styles.centered}>
-              Start one and share its link, or open a link somebody sent you.
-            </ThemedText>
-          ) : null}
-        </ScrollView>
-      </SafeAreaView>
-    </ThemedView>
+      {!isLoading && leagues.length === 0 && !isCreating ? (
+        <Text style={[text.meta, { color: colors.inkMuted, textAlign: 'center' }]}>
+          Start one and share its link, or open a link somebody sent you.
+        </Text>
+      ) : null}
+    </ScreenScaffold>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  safeArea: {
-    flex: 1,
-    width: '100%',
-    maxWidth: MaxContentWidth,
-  },
-  content: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.four,
-    gap: Spacing.three,
-  },
-  header: {
-    paddingTop: Spacing.four,
-    paddingBottom: Spacing.two,
-  },
-  subtitle: {
-    marginTop: 2,
-  },
-  leagueCard: {
-    padding: Spacing.three,
-    borderRadius: Radius.card,
-    borderLeftWidth: 4,
-    boxShadow: CardShadow,
-  },
-  /** The same step back a played or cancelled match card takes. */
-  muted: {
-    opacity: 0.62,
-  },
-  groupHeader: {
-    marginTop: Spacing.three,
-  },
-  card: {
-    padding: Spacing.three,
-    borderRadius: Radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: Spacing.two,
-    boxShadow: CardShadow,
-  },
-  input: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Radius.small,
-    borderWidth: StyleSheet.hairlineWidth,
-    fontSize: 16,
-  },
-  swatches: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-    flexWrap: 'wrap',
-  },
-  swatch: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 0,
-  },
-  formActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: Spacing.two,
-    marginTop: Spacing.one,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.three,
-  },
-  toggleText: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  field: {
-    gap: Spacing.one,
-  },
-  primaryButton: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: Radius.pill,
-  },
-  wide: {
-    borderRadius: Radius.pill,
-  },
-  secondaryButton: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: Radius.pill,
-  },
-  primaryLabel: {
-    color: OnAccent,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  centered: {
-    marginTop: Spacing.three,
-    textAlign: 'center',
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-});

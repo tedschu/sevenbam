@@ -1,23 +1,12 @@
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  TextInput,
-  View,
-} from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 
 import { ChangeNoticePrompt } from '@/components/change-notice-prompt';
 import { PlaceAutocompleteInput } from '@/components/place-autocomplete-input';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { LeagueColors, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Button, GradientButton, Toggle } from '@/components/kit/controls';
+import { FilterChip } from '@/components/kit/filters';
+import { Sheet } from '@/components/kit/sheet';
+import { colors, leagueEdge, radius, text } from '@/constants/design';
 import { changeNotice, changesBetween, type Change } from '@/lib/change-notice';
 import {
   fetchMatchPlayerEmails,
@@ -41,6 +30,20 @@ import {
 import { fetchPlaceDetails } from '@/lib/places';
 
 const DefaultTime = '7:00 pm';
+
+const fieldInput = {
+  ...text.body,
+  fontSize: 16,
+  color: colors.ink,
+  backgroundColor: colors.bg,
+  borderWidth: 1,
+  borderColor: colors.track,
+  borderRadius: radius.inset,
+  paddingHorizontal: 14,
+  height: 48,
+};
+
+const fieldLabel = { ...text.caption, color: colors.inkMuted, letterSpacing: 0.6 };
 
 /** Local wall-clock date, so the default is today where the member is, not UTC. */
 function localDateISO(date: Date) {
@@ -87,7 +90,6 @@ export function MatchSheet({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const theme = useTheme();
   const isEditing = match !== null;
   const startedAt = match ? new Date(match.date_time) : null;
 
@@ -272,374 +274,197 @@ export function MatchSheet({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
-      <KeyboardAvoidingView
-        style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ThemedView style={styles.sheet}>
-          {/* `handled` so a tap on a venue suggestion is delivered to the row
-              instead of being swallowed as a dismiss-the-keyboard gesture. */}
-          <ScrollView
-            contentContainerStyle={styles.sheetContent}
-            keyboardShouldPersistTaps="handled">
-            {/* The announcement step takes the sheet over once the edit is saved.
-                Everything below is hidden rather than scrolled past, so the only
-                two things on screen are the two answers to the question. */}
-            {changes.length > 0 ? (
-              <>
-                <ChangeNoticePrompt
-                  changes={changes}
-                  recipients={recipients.length}
-                  busy={isSaving}
-                  onSend={sendNotice}
-                  onSkip={finishNotice}
-                />
-                {error ? (
-                  <ThemedText type="small" style={{ color: theme.danger }}>
-                    {error}
-                  </ThemedText>
-                ) : null}
-              </>
-            ) : (
-              <>
-            <ThemedText type="subtitle">{isEditing ? 'Edit match' : 'Propose a match'}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
+    <Sheet visible={visible} onClose={close} keyboardAvoiding>
+      {/* The announcement step takes the sheet over once the edit is saved.
+          Everything below is hidden rather than scrolled past, so the only
+          two things on screen are the two answers to the question. */}
+      {changes.length > 0 ? (
+        <>
+          <ChangeNoticePrompt
+            changes={changes}
+            recipients={recipients.length}
+            busy={isSaving}
+            onSend={sendNotice}
+            onSkip={finishNotice}
+          />
+          {error ? <Text style={[text.meta, { color: colors.danger }]}>{error}</Text> : null}
+        </>
+      ) : (
+        <>
+          <View style={{ gap: 4 }}>
+            <Text style={[text.sectionTitle, { color: colors.ink }]}>
+              {isEditing ? 'Edit match' : 'Propose a match'}
+            </Text>
+            <Text style={[text.meta, { color: colors.inkMuted }]}>
               {isEditing
                 ? `${match.players.length} of ${SEATS_PER_MATCH} seats taken.`
                 : 'You take the first seat. Three others can join.'}
-            </ThemedText>
+            </Text>
+          </View>
 
-            <View style={styles.pair}>
-              <View style={styles.pairItem}>
-                <ThemedText type="label" themeColor="textSecondary">Date</ThemedText>
-                <TextInput
-                  value={date}
-                  onChangeText={setDate}
-                  placeholder="2026-08-15"
-                  placeholderTextColor={theme.placeholder}
-                  style={[
-                    styles.input,
-                    { color: theme.text, backgroundColor: theme.backgroundElement },
-                  ]}
-                />
-              </View>
-              <View style={styles.pairItem}>
-                <ThemedText type="label" themeColor="textSecondary">Time</ThemedText>
-                <TextInput
-                  value={time}
-                  onChangeText={setTime}
-                  placeholder={DefaultTime}
-                  placeholderTextColor={theme.placeholder}
-                  autoCapitalize="none"
-                  style={[
-                    styles.input,
-                    { color: theme.text, backgroundColor: theme.backgroundElement },
-                  ]}
-                />
-              </View>
-            </View>
-
-            {date.length > 0 && time.length > 0 && at === null ? (
-              <ThemedText type="small" style={{ color: theme.danger }}>
-                Use YYYY-MM-DD and a time like 6:30 pm.
-              </ThemedText>
-            ) : null}
-
-            <PlaceAutocompleteInput
-              label="Venue"
-              value={location}
-              onChangeText={(next) => {
-                setLocation(next);
-                // Typing over a picked venue makes both its address and its
-                // position stale, and either one wrong is worse than none.
-                setLocationDetail(null);
-                setCoordinates(null);
-                setTimeZone(null);
-              }}
-              onSelectPlace={(suggestion) => {
-                setLocation(suggestion.mainText);
-                setLocationDetail(suggestion.secondaryText);
-                setCoordinates(null);
-                setTimeZone(null);
-                // Not awaited: the field should stay responsive, and the match is
-                // perfectly valid without either of these.
-                fetchPlaceDetails(suggestion.placeId).then((details) => {
-                  setCoordinates(details.location);
-                  setTimeZone(details.timeZone);
-                });
-              }}
-              placeholder="Where you are playing"
-              hint="Pick a suggestion, or type anything — a living room is a venue too."
-              kind="venue"
-            />
-
-            {locationDetail ? (
-              <ThemedText type="small" themeColor="textSecondary" style={styles.detail}>
-                {locationDetail}
-              </ThemedText>
-            ) : null}
-
-            <View style={styles.field}>
-              <ThemedText type="label" themeColor="textSecondary">Notes</ThemedText>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1, gap: 6 }}>
+              <Text style={fieldLabel}>DATE</Text>
               <TextInput
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="Parking, buzzer code, what to bring"
-                placeholderTextColor={theme.placeholder}
-                multiline
-                style={[
-                  styles.input,
-                  styles.multiline,
-                  { color: theme.text, backgroundColor: theme.backgroundElement },
-                ]}
+                value={date}
+                onChangeText={setDate}
+                placeholder="2026-08-15"
+                placeholderTextColor={colors.placeholder}
+                style={fieldInput}
               />
             </View>
-
-            <View style={styles.toggle}>
-              <ThemedText style={styles.toggleLabel}>I am providing tiles and racks</ThemedText>
-              <Switch value={supplies} onValueChange={setSupplies} />
+            <View style={{ flex: 1, gap: 6 }}>
+              <Text style={fieldLabel}>TIME</Text>
+              <TextInput
+                value={time}
+                onChangeText={setTime}
+                placeholder={DefaultTime}
+                placeholderTextColor={colors.placeholder}
+                autoCapitalize="none"
+                style={fieldInput}
+              />
             </View>
+          </View>
 
-            {/* A picker rather than a toggle: "counts toward the league" was
-                never able to say which one. Hidden entirely when you are in no
-                leagues, where the question is meaningless. */}
-            {leagues.length > 0 ? (
-              <View style={styles.field}>
-                <ThemedText type="label" themeColor="textSecondary">
-                  Points count toward
-                </ThemedText>
-                <View style={styles.leagueChips}>
-                  <Pressable
-                    onPress={() => setLeagueId(null)}
-                    style={({ pressed }) => pressed && styles.pressed}>
-                    <ThemedView
-                      type={leagueId === null ? 'backgroundSelected' : 'background'}
-                      style={[styles.leagueChip, { borderColor: theme.rule }]}>
-                      <ThemedText
-                        type="label"
-                        themeColor={leagueId === null ? 'text' : 'textSecondary'}>
-                        Nothing
-                      </ThemedText>
-                    </ThemedView>
-                  </Pressable>
+          {date.length > 0 && time.length > 0 && at === null ? (
+            <Text style={[text.meta, { color: colors.danger }]}>
+              Use YYYY-MM-DD and a time like 6:30 pm.
+            </Text>
+          ) : null}
 
-                  {leagues.map((league) => {
-                    const selected = league.id === leagueId;
-                    const tint = LeagueColors[league.color] ?? theme.accent;
-                    return (
-                      <Pressable
-                        key={league.id}
-                        onPress={() => setLeagueId(league.id)}
-                        style={({ pressed }) => pressed && styles.pressed}>
-                        <ThemedView
-                          type={selected ? 'backgroundSelected' : 'background'}
-                          style={[styles.leagueChip, { borderColor: selected ? tint : theme.rule }]}>
-                          <View style={[styles.leagueDot, { backgroundColor: tint }]} />
-                          <ThemedText type="label" style={{ color: tint }}>
-                            {league.name}
-                          </ThemedText>
-                        </ThemedView>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+          <PlaceAutocompleteInput
+            label="Venue"
+            value={location}
+            onChangeText={(next) => {
+              setLocation(next);
+              // Typing over a picked venue makes both its address and its
+              // position stale, and either one wrong is worse than none.
+              setLocationDetail(null);
+              setCoordinates(null);
+              setTimeZone(null);
+            }}
+            onSelectPlace={(suggestion) => {
+              setLocation(suggestion.mainText);
+              setLocationDetail(suggestion.secondaryText);
+              setCoordinates(null);
+              setTimeZone(null);
+              // Not awaited: the field should stay responsive, and the match is
+              // perfectly valid without either of these.
+              fetchPlaceDetails(suggestion.placeId).then((details) => {
+                setCoordinates(details.location);
+                setTimeZone(details.timeZone);
+              });
+            }}
+            placeholder="Where you are playing"
+            hint="Pick a suggestion, or type anything — a living room is a venue too."
+            kind="venue"
+          />
+
+          {locationDetail ? (
+            <Text style={[text.meta, { color: colors.inkMuted, marginTop: -10 }]}>
+              {locationDetail}
+            </Text>
+          ) : null}
+
+          <View style={{ gap: 6 }}>
+            <Text style={fieldLabel}>NOTES</Text>
+            <TextInput
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Parking, buzzer code, what to bring"
+              placeholderTextColor={colors.placeholder}
+              multiline
+              style={[fieldInput, { height: 88, paddingTop: 12, textAlignVertical: 'top' }]}
+            />
+          </View>
+
+          <Toggle
+            value={supplies}
+            onValueChange={setSupplies}
+            label="I am providing tiles and racks"
+          />
+
+          {/* A picker rather than a toggle: "counts toward the league" was never
+              able to say which one. Hidden entirely when you are in no leagues,
+              where the question is meaningless. */}
+          {leagues.length > 0 ? (
+            <View style={{ gap: 8 }}>
+              <Text style={fieldLabel}>POINTS COUNT TOWARD</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <FilterChip
+                  label="Nothing"
+                  selected={leagueId === null}
+                  onPress={() => setLeagueId(null)}
+                />
+                {leagues.map((league) => (
+                  <FilterChip
+                    key={league.id}
+                    label={league.name}
+                    dotColor={leagueEdge(league.color)}
+                    selected={league.id === leagueId}
+                    onPress={() => setLeagueId(league.id)}
+                  />
+                ))}
               </View>
-            ) : null}
-
-            {error ? (
-              <ThemedText type="small" style={{ color: theme.danger }}>
-                {error}
-              </ThemedText>
-            ) : null}
-
-            <View style={styles.actions}>
-              <Pressable onPress={close} style={({ pressed }) => pressed && styles.pressed}>
-                <ThemedView type="backgroundElement" style={styles.button}>
-                  <ThemedText type="smallBold" themeColor="textSecondary">
-                    Cancel
-                  </ThemedText>
-                </ThemedView>
-              </Pressable>
-
-              <Pressable
-                onPress={save}
-                disabled={!canSave}
-                style={({ pressed }) => pressed && styles.pressed}>
-                <View
-                  style={[
-                    styles.button,
-                    { backgroundColor: theme.accentButton },
-                    !canSave && styles.disabled,
-                  ]}>
-                  {isSaving ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <ThemedText type="smallBold" style={styles.postLabel}>
-                      {isEditing ? 'Save changes' : 'Post match'}
-                    </ThemedText>
-                  )}
-                </View>
-              </Pressable>
             </View>
+          ) : null}
 
-            {/* Two-step rather than a system confirm dialog: a native alert blocks
-                the whole page, and an inline step can say what will actually
-                happen to the other players. */}
-            {isEditing ? (
-              <View style={[styles.removal, { borderColor: theme.rule }]}>
-                {isConfirmingRemoval ? (
-                  <>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {isAlone
-                        ? 'This removes the match completely. Nobody else has joined, so nobody is affected.'
-                        : `${match.players.length - 1} other ${
-                            match.players.length - 1 === 1 ? 'player has' : 'players have'
-                          } joined. They keep their seat and see the match marked canceled.`}
-                    </ThemedText>
-                    <View style={styles.removalActions}>
-                      <Pressable
-                        onPress={() => setIsConfirmingRemoval(false)}
-                        style={({ pressed }) => pressed && styles.pressed}>
-                        <ThemedText type="smallBold" themeColor="textSecondary">
-                          Keep it
-                        </ThemedText>
-                      </Pressable>
-                      <Pressable
-                        onPress={remove}
-                        disabled={isSaving}
-                        style={({ pressed }) => pressed && styles.pressed}>
-                        <ThemedText type="smallBold" style={{ color: theme.danger }}>
-                          Yes, {removalLabel.toLowerCase()}
-                        </ThemedText>
-                      </Pressable>
-                    </View>
-                  </>
-                ) : (
-                  <Pressable
-                    onPress={() => setIsConfirmingRemoval(true)}
-                    style={({ pressed }) => pressed && styles.pressed}>
-                    <ThemedText type="smallBold" style={{ color: theme.danger }}>
-                      {removalLabel}
-                    </ThemedText>
-                  </Pressable>
-                )}
-              </View>
-            ) : null}
-              </>
-            )}
-          </ScrollView>
-        </ThemedView>
-      </KeyboardAvoidingView>
-    </Modal>
+          {error ? <Text style={[text.meta, { color: colors.danger }]}>{error}</Text> : null}
+
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+            <Button variant="soft" size="md" label="Cancel" onPress={close} />
+            <GradientButton
+              size="md"
+              label={isEditing ? 'Save changes' : 'Post match'}
+              disabled={!canSave}
+              busy={isSaving}
+              onPress={save}
+            />
+          </View>
+
+          {/* Two-step rather than a system confirm dialog: a native alert blocks
+              the whole page, and an inline step can say what will actually
+              happen to the other players. */}
+          {isEditing ? (
+            <View style={{ borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: 14, gap: 10 }}>
+              {isConfirmingRemoval ? (
+                <>
+                  <Text style={[text.meta, { color: colors.inkMuted }]}>
+                    {isAlone
+                      ? 'This removes the match completely. Nobody else has joined, so nobody is affected.'
+                      : `${match.players.length - 1} other ${
+                          match.players.length - 1 === 1 ? 'player has' : 'players have'
+                        } joined. They keep their seat and see the match marked canceled.`}
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Button
+                      variant="soft"
+                      size="md"
+                      label="Keep it"
+                      onPress={() => setIsConfirmingRemoval(false)}
+                      style={{ flex: 1 }}
+                    />
+                    <Button
+                      variant="danger"
+                      size="md"
+                      label={`Yes, ${removalLabel.toLowerCase()}`}
+                      disabled={isSaving}
+                      onPress={remove}
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                </>
+              ) : (
+                <Button
+                  variant="danger"
+                  label={removalLabel}
+                  onPress={() => setIsConfirmingRemoval(true)}
+                />
+              )}
+            </View>
+          ) : null}
+        </>
+      )}
+    </Sheet>
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  sheet: {
-    width: '100%',
-    maxWidth: MaxContentWidth,
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    maxHeight: '90%',
-  },
-  sheetContent: {
-    padding: Spacing.four,
-    gap: Spacing.three,
-  },
-  pair: {
-    flexDirection: 'row',
-    gap: Spacing.three,
-  },
-  pairItem: {
-    flex: 1,
-    gap: Spacing.one,
-  },
-  field: {
-    gap: Spacing.one,
-  },
-  input: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Radius.small,
-    fontSize: 16,
-  },
-  multiline: {
-    minHeight: 72,
-    textAlignVertical: 'top',
-  },
-  detail: {
-    marginTop: -Spacing.two,
-  },
-  leagueChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  leagueChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    minHeight: 40,
-    borderRadius: Radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  leagueDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  toggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.three,
-  },
-  toggleLabel: {
-    flex: 1,
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  button: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    borderRadius: Radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 110,
-    minHeight: 44,
-  },
-  removal: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: Spacing.three,
-    gap: Spacing.two,
-  },
-  removalActions: {
-    flexDirection: 'row',
-    gap: Spacing.four,
-    alignItems: 'center',
-    minHeight: 44,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  postLabel: {
-    // White on the deep teal fill: 5.4:1, where the near-black it replaced was
-    // correct only while the fill was the pale `accent`.
-    color: '#ffffff',
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-});

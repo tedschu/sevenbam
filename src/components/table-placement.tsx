@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
-import { Avatar, EmptySeat } from '@/components/avatar';
-import { Icon } from '@/components/icon';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { OnAccent, Radius, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Avatar as OldAvatar, EmptySeat } from '@/components/avatar';
+import { Button } from '@/components/kit/controls';
+import { Icon } from '@/components/kit/icons';
+import { InsetWell } from '@/components/kit/layout';
+import { colors, radius, text } from '@/constants/design';
 import { SEATS_PER_MATCH } from '@/lib/matches';
 import { type SessionTable } from '@/lib/leagues';
 
@@ -91,7 +90,6 @@ export function TablePlacement({
   onCancel: () => void;
   onSave: (tables: string[][]) => Promise<void>;
 }) {
-  const theme = useTheme();
   const [draft, setDraft] = useState<Seat[][]>(() => tables.map((table) => [...table.seats]));
   /** Who is in the air. Null when nothing has been picked up. */
   const [picked, setPicked] = useState<string | null>(null);
@@ -185,30 +183,32 @@ export function TablePlacement({
   };
 
   return (
-    <View style={styles.editor}>
+    <View style={{ gap: 10 }}>
       {/* The mode is stated, not implied by the chips looking slightly different.
           This screen has a read-only seating view that looks much like this one,
           and an organizer who is not sure which one they are in will not risk
           tapping. */}
-      <ThemedView
-        type="backgroundSelected"
-        style={[styles.banner, { borderColor: pickedSeat ? tint : theme.rule }]}>
+      <InsetWell style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        {/* A league's colour is a fill everywhere else in the app — a date-tile
+            edge, a dot — never text or an icon stroke, since several of them
+            (yellow, lime) fail contrast at that weight. `link` stands in for
+            "active" here instead. */}
         <Icon
-          name={pickedSeat ? 'people' : 'pencil'}
-          color={pickedSeat ? tint : theme.textSecondary}
+          name={pickedSeat ? 'users' : 'pencil'}
+          color={pickedSeat ? colors.link : colors.inkMuted}
           size={16}
         />
-        <ThemedText type="small" style={styles.bannerText}>
+        <Text style={[text.meta, { color: colors.inkMuted, flex: 1 }]}>
           {pickedSeat ? (
             <>
-              Moving <ThemedText type="smallBold">{pickedSeat.name ?? 'this player'}</ThemedText>.
+              Moving <Text style={[text.bodyStrong, { color: colors.ink }]}>{pickedSeat.name ?? 'this player'}</Text>.
               Tap a table to move them there, or another player to swap.
             </>
           ) : (
             'Editing tables. Tap a player to pick them up.'
           )}
-        </ThemedText>
-      </ThemedView>
+        </Text>
+      </InsetWell>
 
       {draft.map((seats, index) => {
         const empty = Math.max(0, SEATS_PER_MATCH - seats.length);
@@ -222,32 +222,35 @@ export function TablePlacement({
           <Pressable
             key={index}
             onPress={() => tapTable(index)}
-            accessibilityRole="button"
+            // No accessibilityRole here: each seat inside is its own button, and
+            // on web `role="button"` renders a literal <button> — nesting one
+            // inside another like this is invalid HTML and React warns on it.
+            // The label still gets read out via the accessible name below.
             accessibilityLabel={
               picked
                 ? `Move to table ${index + 1}`
                 : `Table ${index + 1}, ${seats.length} of ${SEATS_PER_MATCH} seats taken`
             }
-            style={({ pressed }) => pressed && styles.pressed}>
+            style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
             <View
-              style={[
-                styles.table,
-                {
-                  borderColor: open ? tint : theme.rule,
-                  borderStyle: open ? 'dashed' : 'solid',
-                },
-              ]}>
-              <View style={styles.tableHeader}>
-                <ThemedText type="label" themeColor="textSecondary">
-                  Table {index + 1}
-                </ThemedText>
-                <ThemedText type="label" themeColor="textSecondary">
+              style={{
+                gap: 8,
+                padding: 12,
+                borderRadius: radius.card,
+                borderWidth: open ? 2 : 1,
+                borderColor: open ? tint : colors.track,
+                borderStyle: open ? 'dashed' : 'solid',
+                backgroundColor: colors.bg,
+              }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={[text.caption, { color: colors.inkMuted, letterSpacing: 0.6 }]}>
+                  TABLE {index + 1}
+                </Text>
+                <Text style={[text.caption, { color: colors.inkMuted }]}>
                   {seats.length}/{SEATS_PER_MATCH}
-                </ThemedText>
+                </Text>
                 {open ? (
-                  <ThemedText type="label" style={{ color: tint }}>
-                    Tap to move here
-                  </ThemedText>
+                  <Text style={[text.pill, { color: colors.link }]}>TAP TO MOVE HERE</Text>
                 ) : null}
               </View>
 
@@ -265,47 +268,58 @@ export function TablePlacement({
                           ? `Swap with ${seat.name ?? 'this player'}`
                           : `Pick up ${seat.name ?? 'this player'}`
                     }
-                    style={({ pressed }) => pressed && styles.pressed}>
-                    <ThemedView
-                      type={lifted ? 'backgroundSelected' : 'background'}
+                    style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
+                    <View
                       style={[
-                        styles.chip,
-                        { borderColor: lifted ? tint : theme.rule },
-                        lifted && styles.chipLifted,
+                        {
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 8,
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: radius.pill,
+                          backgroundColor: colors.white,
+                          borderWidth: 1,
+                          borderColor: lifted ? tint : colors.track,
+                        },
+                        lifted && {
+                          transform: [{ translateY: -1 }],
+                          shadowColor: colors.ink,
+                          shadowOpacity: 0.18,
+                          shadowRadius: 6,
+                          shadowOffset: { width: 0, height: 3 },
+                          elevation: 3,
+                        },
                       ]}>
-                      <Avatar
+                      <OldAvatar
                         person={{ name: seat.name, avatar_url: seat.avatar_url }}
                         size={26}
-                        ring={theme.rule}
+                        ring={colors.white}
                       />
-                      <ThemedText type="small" numberOfLines={1} style={styles.chipName}>
+                      <Text style={[text.meta, { color: colors.ink, flex: 1 }]} numberOfLines={1}>
                         {seat.name ?? 'Unnamed member'}
-                      </ThemedText>
+                      </Text>
                       {/* Whoever is first at a table keeps its scores, which is
                           exactly the thing a rearrangement can move without
                           anybody noticing. Said here so it is visible while the
                           decision is being made. */}
                       {position === 0 ? (
-                        <ThemedText type="label" themeColor="textSecondary">
-                          Scores
-                        </ThemedText>
+                        <Text style={[text.pill, { color: colors.inkMuted }]}>SCORES</Text>
                       ) : null}
                       <Icon
                         name={lifted ? 'close' : 'chevronDown'}
-                        color={lifted ? tint : theme.textSecondary}
+                        color={lifted ? tint : colors.inkMuted}
                         size={14}
                       />
-                    </ThemedView>
+                    </View>
                   </Pressable>
                 );
               })}
 
               {Array.from({ length: empty }, (_, seat) => (
-                <View key={`empty-${seat}`} style={styles.emptyRow}>
-                  <EmptySeat size={26} ring={theme.rule} />
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Empty seat
-                  </ThemedText>
+                <View key={`empty-${seat}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <EmptySeat size={26} ring={colors.white} />
+                  <Text style={[text.meta, { color: colors.inkMuted }]}>Empty seat</Text>
                 </View>
               ))}
             </View>
@@ -320,140 +334,50 @@ export function TablePlacement({
         onPress={() => setDraft((current) => [...current, []])}
         accessibilityRole="button"
         accessibilityLabel="Add another table"
-        style={({ pressed }) => pressed && styles.pressed}>
-        <ThemedView
-          type="backgroundElement"
-          style={[styles.addTable, { borderColor: theme.rule }]}>
-          <Icon name="plus" color={theme.textSecondary} size={16} />
-          <ThemedText type="label" themeColor="textSecondary">
-            Add a table
-          </ThemedText>
-        </ThemedView>
+        style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            paddingVertical: 12,
+            borderRadius: radius.card,
+            borderWidth: 2,
+            borderColor: colors.track,
+            borderStyle: 'dashed',
+          }}>
+          <Icon name="plus" color={colors.inkMuted} size={16} />
+          <Text style={[text.meta, { color: colors.inkMuted }]}>Add a table</Text>
+        </View>
       </Pressable>
 
-      {error ? (
-        <ThemedText type="small" style={{ color: theme.danger }}>
-          {error}
-        </ThemedText>
-      ) : null}
+      {error ? <Text style={[text.meta, { color: colors.danger }]}>{error}</Text> : null}
 
-      <View style={styles.actions}>
-        <Pressable
-          onPress={onCancel}
-          disabled={isSaving}
-          style={({ pressed }) => pressed && styles.pressed}>
-          <ThemedView type="backgroundElement" style={styles.button}>
-            <ThemedText type="smallBold" themeColor="textSecondary">
-              Cancel
-            </ThemedText>
-          </ThemedView>
-        </Pressable>
-
-        <Pressable
-          onPress={save}
-          disabled={isSaving}
-          style={({ pressed }) => pressed && styles.pressed}>
-          <View style={[styles.button, { backgroundColor: tint }, isSaving && styles.disabled]}>
-            {isSaving ? (
-              <ActivityIndicator color={OnAccent} />
-            ) : (
-              <ThemedText type="smallBold" style={{ color: OnAccent }}>
-                Save tables
-              </ThemedText>
-            )}
-          </View>
-        </Pressable>
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+        <Button variant="soft" size="md" label="Cancel" onPress={onCancel} disabled={isSaving} />
+        {isSaving ? (
+          <ActivityIndicator />
+        ) : (
+          <Pressable
+            onPress={save}
+            accessibilityRole="button"
+            accessibilityLabel="Save tables"
+            style={({ pressed }) => ({
+              height: 48,
+              paddingHorizontal: 20,
+              borderRadius: radius.pill,
+              backgroundColor: tint,
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: pressed ? 0.85 : 1,
+            })}>
+            {/* Dark ink on the league's own tint, not white — the league colours
+                are pastels (§3.1) and fail contrast as a ground for white type. */}
+            <Text style={[text.buttonSm, { color: colors.ink, fontSize: 15 }]}>Save tables</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  editor: {
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    padding: Spacing.three,
-    borderRadius: Radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  bannerText: {
-    flex: 1,
-  },
-  table: {
-    gap: Spacing.two,
-    padding: Spacing.three,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-  },
-  /**
-   * Lifted off the page while it is in the air, which is the one thing a tap-based
-   * move borrows from dragging: the chip has to look like it is somewhere else.
-   */
-  chipLifted: {
-    transform: [{ translateY: -1 }],
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  chipName: {
-    flex: 1,
-  },
-  emptyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.two,
-  },
-  addTable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    paddingVertical: Spacing.two,
-    borderRadius: Radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderStyle: 'dashed',
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: Spacing.two,
-    marginTop: Spacing.one,
-  },
-  button: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    borderRadius: Radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 110,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-});

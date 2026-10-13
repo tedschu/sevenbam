@@ -139,6 +139,37 @@ export async function fetchMyHome(
   return { latitude: data.home_latitude, longitude: data.home_longitude };
 }
 
+/**
+ * The few things a screen header needs about the signed-in member: what to call
+ * them, where they measure distances from, and what to draw in their avatar.
+ *
+ * One query, replacing `fetchMyHome`'s — Browse needs the town's name for its
+ * subtitle and filter line, and the name and photo for its header, all of which
+ * live on the row it was already reading. Never throws: a header that cannot be
+ * personalised is not a reason to fail the screen.
+ */
+export async function fetchMyBearings(userId: string): Promise<{
+  name: string | null;
+  town: string | null;
+  home: { latitude: number; longitude: number } | null;
+  avatarUrl: string | null;
+}> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('name, town, home_latitude, home_longitude, avatar_url')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error || !data) return { name: null, town: null, home: null, avatarUrl: null };
+
+  const home =
+    typeof data.home_latitude === 'number' && typeof data.home_longitude === 'number'
+      ? { latitude: data.home_latitude, longitude: data.home_longitude }
+      : null;
+
+  return { name: data.name, town: data.town, home, avatarUrl: data.avatar_url };
+}
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;

@@ -1,10 +1,7 @@
-import { StyleSheet } from 'react-native';
+import { Text, View } from 'react-native';
 
-import { GradientButton, OutlineButton } from '@/components/button';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Radius, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Button, GradientButton } from '@/components/kit/controls';
+import { colors, pillTones, radius, text } from '@/constants/design';
 import { describeChanges, type Change } from '@/lib/change-notice';
 
 /**
@@ -34,49 +31,35 @@ export function ChangeNoticePrompt({
   onSend: () => void;
   onSkip: () => void;
 }) {
-  const theme = useTheme();
-
   return (
-    <ThemedView
-      type="backgroundSelected"
-      style={[styles.panel, { borderColor: theme.accentWarm }]}>
-      <ThemedText type="defaultSemiBold">Saved. Tell everyone?</ThemedText>
+    <View
+      style={{
+        padding: 16,
+        borderRadius: radius.card,
+        backgroundColor: pillTones.soon.bg,
+        gap: 8,
+      }}>
+      <Text style={[text.bodyStrong, { color: colors.ink }]}>Saved. Tell everyone?</Text>
 
-      <ThemedText type="small" themeColor="textSecondary">
+      <Text style={[text.meta, { color: colors.inkMuted }]}>
         {recipients === 0
           ? `You changed ${describeChanges(changes)}. Nobody else has joined yet, so there is nobody to tell.`
           : `You changed ${describeChanges(changes)}. ${
               recipients === 1 ? 'One person has' : `${recipients} people have`
-            } this in their calendar and ${
-              recipients === 1 ? 'does' : 'do'
-            } not know yet.`}
-      </ThemedText>
+            } this in their calendar and ${recipients === 1 ? 'does' : 'do'} not know yet.`}
+      </Text>
 
       {recipients > 0 ? (
-        <>
+        <View style={{ gap: 8 }}>
           {/* Opens their own mail client with the message written and everyone in
               BCC — the app sends nothing itself, so the note arrives from a person
               the reader knows rather than from a no-reply address. */}
-          <GradientButton
-            label={busy ? 'Opening…' : 'Write the email'}
-            onPress={onSend}
-            busy={busy}
-            wide
-          />
-          <OutlineButton label="Not now" onPress={onSkip} disabled={busy} wide />
-        </>
+          <GradientButton label={busy ? 'Opening…' : 'Write the email'} onPress={onSend} busy={busy} />
+          <Button variant="outline" size="md" label="Not now" onPress={onSkip} disabled={busy} />
+        </View>
       ) : (
-        <OutlineButton label="Done" onPress={onSkip} wide />
+        <Button variant="outline" size="md" label="Done" onPress={onSkip} />
       )}
-    </ThemedView>
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  panel: {
-    padding: Spacing.three,
-    borderRadius: Radius.card,
-    borderWidth: 1,
-    gap: Spacing.two,
-  },
-});

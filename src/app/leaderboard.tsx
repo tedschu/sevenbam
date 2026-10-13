@@ -1,32 +1,28 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Platform,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, RefreshControl, Text } from 'react-native';
 
-import { Avatar } from '@/components/avatar';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { initialsOf } from '@/components/match-card';
+import { StandingRow, YourStandingCard } from '@/components/kit/cards';
+import { ScopeChips } from '@/components/kit/filters';
 import {
-  BottomTabInset,
-  CardShadow,
-  LeagueColors,
-  MaxContentWidth,
-  Radius,
-  Spacing,
-} from '@/constants/theme';
+  Card,
+  ScreenHeader,
+  ScreenScaffold,
+  SectionHeader,
+  TitleBlock,
+} from '@/components/kit/layout';
+import { colors, text } from '@/constants/design';
+import { LeagueColors } from '@/constants/theme';
 import { useGlobalView } from '@/hooks/use-global-view';
-import { useTheme } from '@/hooks/use-theme';
+import { useNeedsProfileSetup } from '@/hooks/use-profile-setup';
+import { fetchMyBearings } from '@/lib/profile';
+
 import { fetchLeaderboard, type LeaderboardRow } from '@/lib/leaderboard';
 import { fetchLeagueStandings, fetchMyLeagues, type MyLeague } from '@/lib/leagues';
 import { supabase } from '@/lib/supabase';
+
+const AppMark = require('@/assets/images/app-mark.png');
 
 type Scope = { id: string | null; label: string; tint: string | null };
 
@@ -98,96 +94,55 @@ function provenance(row: RankedRow) {
     : `Updated ${date}`;
 }
 
+/** "1st", "2nd", "3rd", "4th" — for the standing card's headline. */
+function ordinal(rank: number) {
+  const tens = rank % 100;
+  if (tens >= 11 && tens <= 13) return `${rank}th`;
+  switch (rank % 10) {
+    case 1:
+      return `${rank}st`;
+    case 2:
+      return `${rank}nd`;
+    case 3:
+      return `${rank}rd`;
+    default:
+      return `${rank}th`;
+  }
+}
+
 /**
- * A row of the standings, set the way a hand and its value sit on the NMJL
- * card: the name on the left, the points right-aligned in the margin, and a
- * leader rule carrying the eye across the gap between them.
+ * The sentence under the viewer's own rank.
+ *
+ * Says the gap rather than the position, because the position is already the
+ * headline — what a member cannot read off the list at a glance is how far away
+ * the next number is.
  */
-function StandingRow({ row, isCurrentUser }: { row: RankedRow; isCurrentUser: boolean }) {
-  const theme = useTheme();
-  const unplayed = row.games_played === 0;
-  const scoredBy = provenance(row);
+function standingDetail(mine: RankedRow, rows: RankedRow[]) {
+  const games = `${mine.games_played} ${mine.games_played === 1 ? 'game' : 'games'}`;
+  const wins = `${mine.wins} ${mine.wins === 1 ? 'win' : 'wins'}`;
+  const tail = `${games}, ${wins} so far.`;
 
-  return (
-    <ThemedView
-      type={isCurrentUser ? 'backgroundSelected' : 'background'}
-      style={[styles.row, styles.raised, { borderColor: theme.rule }]}>
-      <ThemedText
-        type="figureSmall"
-        style={styles.rank}
-        themeColor={unplayed ? 'textSecondary' : 'textSecondary'}>
-        {unplayed ? '—' : row.rank}
-      </ThemedText>
+  if (mine.rank === 1) {
+    const next = rows.find((row) => row.rank > 1);
+    const lead = next ? mine.total_points - next.total_points : 0;
+    if (!next || lead <= 0) return `You are top of the board. ${tail}`;
+    return `You're in the lead by ${lead} ${lead === 1 ? 'point' : 'points'}. ${tail}`;
+  }
 
-      {/* Ringed in the card surface, not the hairline rule: on the highlighted
-          row the rule is nearly the same value as the highlight and the ring
-          disappeared. */}
-      <Avatar
-        person={{ name: row.name, avatar_url: row.avatar_url }}
-        size={30}
-        ring={isCurrentUser ? theme.background : theme.rule}
-      />
-
-      <View style={styles.identity}>
-        {/* A closed account keeps its results but not its name, so it is marked
-            rather than left looking like a member called "Player 3f2a" who never
-            filled their profile in. Set in the secondary ink so the note reads as
-            an annotation and not as part of the name. */}
-        <ThemedText type="defaultSemiBold" numberOfLines={1}>
-          {row.name ?? 'Unnamed member'}
-          {isCurrentUser ? ' (you)' : ''}
-          {row.deleted ? (
-            <ThemedText type="small" themeColor="textSecondary">
-              {'  (deleted)'}
-            </ThemedText>
-          ) : null}
-        </ThemedText>
-        {/* Clipped rather than wrapped: the row is a single line by design, and a
-            summary that wraps would make each card a different height. */}
-        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-          {summarise(row)}
-        </ThemedText>
-        {/* Under the name rather than beside the numeral, which is where it
-            belongs by meaning and will not fit by measurement: "Updated 8/8 by
-            April Lane" is about 145px, and putting it in the points column would
-            take that column from 60px to 150 and crush the name on a phone. Here
-            it has the width the identity block already has. */}
-        {scoredBy ? (
-          <ThemedText
-            type="small"
-            themeColor="textSecondary"
-            numberOfLines={1}
-            style={styles.provenance}>
-            {scoredBy}
-          </ThemedText>
-        ) : null}
-      </View>
-
-      {/* Drawn from the secondary ink rather than the hairline rule colour, which is
-          tuned for card edges and disappears against the highlighted row — then taken
-          most of the way back down with opacity, because at full strength a hairline
-          in a 4.7:1 ink reads as a black line rather than a leader rule. */}
-      <View style={[styles.leader, { borderColor: theme.textSecondary }]} />
-
-      <ThemedText
-        type="figure"
-        style={[
-          styles.points,
-          // Deep amber rather than the amber fill: this is a 22px numeral, and
-          // `#ffa35a` on white is 2.0:1.
-          { color: row.rank === 1 && !unplayed ? theme.accentWarmInk : theme.text },
-          unplayed && styles.muted,
-        ]}>
-        {row.total_points}
-      </ThemedText>
-    </ThemedView>
-  );
+  const leader = rows[0];
+  const behind = leader ? leader.total_points - mine.total_points : 0;
+  const who = leader?.name?.split(/\s+/)[0] ?? 'the leader';
+  return `${behind} ${behind === 1 ? 'point' : 'points'} behind ${who}. ${tail}`;
 }
 
 export default function LeaderboardScreen() {
   const globalView = useGlobalView();
-  const theme = useTheme();
+  const needsSetup = useNeedsProfileSetup();
   const [rows, setRows] = useState<RankedRow[]>([]);
+  const [me, setMe] = useState<{ name: string | null; avatarUrl: string | null }>({
+    name: null,
+    avatarUrl: null,
+  });
   const [userId, setUserId] = useState<string | null>(null);
   const [leagues, setLeagues] = useState<MyLeague[]>([]);
   // null means every match, league or not. Leagues are picked by id.
@@ -204,6 +159,7 @@ export default function LeaderboardScreen() {
       } = await supabase.auth.getUser();
 
       setUserId(user?.id ?? null);
+      if (user) setMe(await fetchMyBearings(user.id));
 
       const mine = user ? await fetchMyLeagues(user.id, globalView) : [];
       setLeagues(mine);
@@ -255,232 +211,112 @@ export default function LeaderboardScreen() {
     })),
   ];
 
+  const mine = rows.find((row) => row.player_id === userId) ?? null;
+  const leaderPoints = rows[0]?.total_points ?? 0;
+
   return (
-    <ThemedView type="backgroundElement" style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <ThemedText type="label" themeColor="accentInk">
-            {playedCount === 0
-              ? 'No cards recorded'
-              : `${playedCount} ${playedCount === 1 ? 'member' : 'members'} playing`}
-          </ThemedText>
-          <ThemedText type="title">{activeLeague ? activeLeague.name : 'Leaderboard'}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-            {activeLeague ? 'League standings, by total points' : 'Every match, by total points'}
-          </ThemedText>
-        </View>
+    <ScreenScaffold refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}>
+      <ScreenHeader
+        logo={AppMark}
+        initials={initialsOf(me.name)}
+        photoUrl={me.avatarUrl}
+        badge={needsSetup}
+        onProfilePress={() => router.push('/profile')}
+      />
 
-        {/* One chip per league you are in, plus everything. Leagues you are not
-            in are not offered, and RLS would not return them anyway. */}
-        {scopes.length > 1 ? (
-          <View style={styles.scopes}>
-            {scopes.map((scope) => {
-              const selected = scope.id === scopeId;
-              return (
-                <Pressable
-                  key={scope.id ?? 'all'}
-                  onPress={() => {
-                    setScopeChosen(true);
-                    setScopeId(scope.id);
+      <TitleBlock
+        eyebrow={
+          playedCount === 0
+            ? 'No cards recorded'
+            : `${playedCount} ${playedCount === 1 ? 'member' : 'members'} playing`
+        }
+        title="Leaderboard"
+        subtitle={
+          activeLeague ? `${activeLeague.name}, by total points` : 'Every match, by total points'
+        }
+      />
+
+      {/* One chip per league you are in, plus everything. Leagues you are not in
+          are not offered, and RLS would not return them anyway. */}
+      {scopes.length > 1 ? (
+        <ScopeChips
+          value={scopeId ?? 'all'}
+          onChange={(next) => {
+            setScopeChosen(true);
+            setScopeId(next === 'all' ? null : next);
+          }}
+          options={scopes.map((scope) => ({
+            value: scope.id ?? 'all',
+            label: scope.label,
+            dotColor: scope.tint ?? undefined,
+          }))}
+        />
+      ) : null}
+
+      {error ? <Text style={[text.meta, { color: colors.danger }]}>{error}</Text> : null}
+
+      {isLoading ? (
+        <ActivityIndicator style={{ marginTop: 40 }} />
+      ) : (
+        <>
+          {/* Hidden for somebody who is not in this scope at all — a standing card
+              with nothing in it is worse than none. */}
+          {mine ? (
+            <YourStandingCard
+              me={{
+                id: mine.player_id,
+                initials: initialsOf(mine.name),
+                photoUrl: mine.avatar_url,
+              }}
+              rank={mine.games_played === 0 ? 'Unranked' : ordinal(mine.rank)}
+              points={mine.total_points}
+              detail={
+                mine.games_played === 0
+                  ? 'No games yet. Your first card puts you on the board.'
+                  : standingDetail(mine, rows)
+              }
+            />
+          ) : null}
+
+          <SectionHeader title="Standings" />
+          {rows.length > 0 ? (
+            <Card padding={8} gap={0}>
+              {rows.map((row) => (
+                <StandingRow
+                  key={row.player_id}
+                  rank={row.games_played === 0 ? '—' : row.rank}
+                  player={{
+                    id: row.player_id,
+                    initials: initialsOf(row.name),
+                    photoUrl: row.avatar_url,
                   }}
-                  style={({ pressed }) => pressed && styles.pressed}>
-                  <ThemedView
-                    type={selected ? 'backgroundSelected' : 'background'}
-                    style={[
-                      styles.scopeChip,
-                      { borderColor: selected && scope.tint ? scope.tint : theme.rule },
-                    ]}>
-                    {scope.tint ? (
-                      <View style={[styles.scopeDot, { backgroundColor: scope.tint }]} />
-                    ) : null}
-                    {/* The dot carries the league's colour; the label stays on
-                        readable ink. Several league colours are pastels that
-                        cannot be read as 11px type. */}
-                    <ThemedText type="label" themeColor={selected ? 'text' : 'textSecondary'}>
-                      {scope.label}
-                    </ThemedText>
-                  </ThemedView>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
+                  /* A closed account keeps its results but not its name, so it is
+                     marked rather than left looking like a member who never filled
+                     their profile in. */
+                  name={`${row.name ?? 'Unnamed member'}${row.deleted ? ' (deleted)' : ''}`}
+                  isMe={row.player_id === userId}
+                  points={row.total_points}
+                  leaderPoints={leaderPoints}
+                  /* Who to ask about a number that looks wrong, kept per row
+                     rather than folded into the footnote: a total is the end of a
+                     chain nobody can see. */
+                  detail={[summarise(row), provenance(row)].filter(Boolean).join(' · ')}
+                />
+              ))}
+            </Card>
+          ) : (
+            <Text style={[text.meta, { color: colors.inkMuted, textAlign: 'center' }]}>
+              No members yet.
+            </Text>
+          )}
 
-        {error ? (
-          <ThemedText type="small" style={[styles.errorBanner, { color: theme.danger }]}>
-            {error}
-          </ThemedText>
-        ) : null}
-
-        {isLoading ? (
-          <ActivityIndicator style={styles.centered} />
-        ) : (
-          <FlatList
-            data={rows}
-            keyExtractor={(item) => item.player_id}
-            renderItem={({ item }) => (
-              <StandingRow row={item} isCurrentUser={item.player_id === userId} />
-            )}
-            contentContainerStyle={styles.listContent}
-            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}
-            ListEmptyComponent={
-              <ThemedText style={styles.centered} themeColor="textSecondary">
-                No members yet.
-              </ThemedText>
-            }
-            ListFooterComponent={
-              rows.some((row) => row.games_played > 0) ? (
-                <ThemedText type="small" themeColor="textSecondary" style={styles.footnote}>
-                  Totals count finished matches with scores entered.
-                </ThemedText>
-              ) : null
-            }
-          />
-        )}
-      </SafeAreaView>
-    </ThemedView>
+          {rows.some((row) => row.games_played > 0) ? (
+            <Text style={[text.caption, { color: colors.inkMuted, textAlign: 'center' }]}>
+              Totals count finished matches with scores entered.
+            </Text>
+          ) : null}
+        </>
+      )}
+    </ScreenScaffold>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  safeArea: {
-    flex: 1,
-    width: '100%',
-    maxWidth: MaxContentWidth,
-  },
-  header: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.four,
-    paddingBottom: Spacing.three,
-  },
-  subtitle: {
-    marginTop: 2,
-  },
-  errorBanner: {
-    marginHorizontal: Spacing.four,
-    marginBottom: Spacing.two,
-  },
-  listContent: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.four,
-    gap: Spacing.two,
-  },
-  scopes: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    paddingBottom: Spacing.three,
-  },
-  scopeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    minHeight: 36,
-    borderRadius: Radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  scopeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    // Eight, not sixteen. Five columns means four gaps, so sixteen spent 64px of
-    // the 345px a card gets on a 393pt phone — enough that a name the length of
-    // "Anna Lettenberger" left the score with no padding at all.
-    gap: Spacing.two,
-  },
-  /** Same faint lift as the match cards, so both read as the same material. */
-  raised: Platform.select({
-    android: { elevation: 2 },
-    default: { boxShadow: CardShadow },
-  }),
-  rank: {
-    minWidth: 20,
-    textAlign: 'right',
-  },
-  muted: {
-    opacity: 0.45,
-  },
-  /**
-   * The block that gives way when a row runs out of room, and the fix for scores
-   * sitting hard against the card edge.
-   *
-   * `flexShrink` is the whole bug: it defaults to 0 for a View in Yoga and in
-   * react-native-web both, so this held its full intrinsic width and refused to give
-   * any back. A long name or a long summary pushed the row wider than the card and
-   * carried the score out past the padding with it — which is also why the
-   * `numberOfLines` above never truncated anything. It had all the width it asked
-   * for. `minWidth: 0` is already RNW's default for a View and is stated here only
-   * so the shrink does not depend on that.
-   */
-  /**
-   * Quieter than the summary line above it, which is the point: this is a
-   * footnote about where a number came from, not part of what the row says.
-   *
-   * Lightened with opacity rather than a paler ink, because "lighter" means the
-   * opposite thing in the two themes — a fixed grey that recedes on white would
-   * come forward on the dark ground. Opacity moves it toward whatever the
-   * background happens to be, so it reads as the same step back in both.
-   */
-  provenance: {
-    fontSize: 12,
-    lineHeight: 16,
-    opacity: 0.75,
-  },
-  identity: {
-    flexShrink: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  /** Carries the eye from the name across to the value, as the card's rules do. */
-  leader: {
-    flex: 1,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    marginBottom: 2,
-    // Grey, not black. Applied as opacity rather than as a fourth grey in the
-    // palette so it still follows the secondary ink into dark mode, where a fixed
-    // light grey would be the wrong direction entirely. Lands on #bec0c6 over a
-    // white card, #565c68 over a dark one, and stays visible on the yellow
-    // highlight — which a paler token from the palette would not.
-    opacity: 0.45,
-    // Short enough to still read as a rule once the row is tight. The name gives
-    // way before this does, because a clipped name is better than a lost score.
-    minWidth: Spacing.three,
-  },
-  /**
-   * No width of its own, deliberately. The leader rule above takes every pixel the
-   * row has spare, so the score is always flush against the right padding whether it
-   * reads 8 or 1200 — a fixed column would only take 40px off the name to buy an
-   * alignment the layout already guarantees. `flexShrink: 0` is the part that
-   * matters: the numeral must never be the thing that gives way.
-   */
-  points: {
-    flexShrink: 0,
-    textAlign: 'right',
-  },
-  footnote: {
-    marginTop: Spacing.three,
-    textAlign: 'center',
-  },
-  centered: {
-    marginTop: Spacing.six,
-    textAlign: 'center',
-  },
-});

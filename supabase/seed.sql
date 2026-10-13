@@ -64,7 +64,7 @@ update public.profiles set home_latitude = 42.3318, home_longitude = -71.1212
 -- "no coordinates" is a case Browse has to handle rather than a gap in the seed:
 -- every match proposed before the distance filter existed has none, and so does
 -- any venue typed by hand. Distances from Brookline are roughly:
---   Ted's House            0 mi
+--   Sideline Cafe          0 mi
 --   Community Center       1 mi
 --   Brookline Senior Ctr   1 mi
 --   Newton Library         5 mi
@@ -73,7 +73,7 @@ insert into public.matches (id, host_id, date_time, location, notes, supplies_pr
                             latitude, longitude)
 values
   ('aaaaaaaa-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
-   now() + interval '3 days', 'Ted''s House', 'Parking on the street.', true, 'open',
+   now() + interval '3 days', 'Sideline Cafe', 'Parking on the street.', true, 'open',
    42.3318, -71.1212),
   ('aaaaaaaa-0000-0000-0000-000000000002', '22222222-2222-2222-2222-222222222222',
    now() + interval '6 days', 'Community Center', null, false, 'open',
@@ -146,7 +146,7 @@ values
 insert into public.matches (id, host_id, date_time, location, notes, supplies_provided, status)
 values
   ('aaaaaaaa-0000-0000-0000-000000000006', '11111111-1111-1111-1111-111111111111',
-   now() - interval '21 days', 'Ted''s House', null, true, 'open'),
+   now() - interval '21 days', 'Sideline Cafe', null, true, 'open'),
   ('aaaaaaaa-0000-0000-0000-000000000007', '22222222-2222-2222-2222-222222222222',
    now() - interval '14 days', 'Community Center', null, false, 'open');
 

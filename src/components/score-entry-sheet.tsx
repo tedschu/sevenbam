@@ -1,20 +1,9 @@
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { DisplayFont, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Button, GradientButton } from '@/components/kit/controls';
+import { Sheet } from '@/components/kit/sheet';
+import { colors, fonts, pillTones, radius, text } from '@/constants/design';
 
 /** Accepts a whole number, optionally negative. Rejects blanks and stray text. */
 function parseScore(raw: string): number | null {
@@ -61,7 +50,6 @@ export function ScoreEntrySheet({
   onSaved: () => void;
   save: (entries: ScoreEntry[]) => Promise<void>;
 }) {
-  const theme = useTheme();
   // Prefilled with whatever is already recorded, so correcting one number does
   // not mean retyping the whole card. The caller keys this component by what it
   // is scoring, so the initialiser re-runs for each one.
@@ -161,191 +149,82 @@ export function ScoreEntrySheet({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
-      <KeyboardAvoidingView
-        style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ThemedView style={styles.sheet}>
-          <ScrollView contentContainerStyle={styles.sheetContent}>
-            <ThemedText type="subtitle">{isCorrection ? 'Edit scores' : 'Enter scores'}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {subtitle}
-            </ThemedText>
+    <Sheet visible={visible} onClose={close} keyboardAvoiding>
+      <View style={{ gap: 4 }}>
+        <Text style={[text.sectionTitle, { color: colors.ink }]}>
+          {isCorrection ? 'Edit scores' : 'Enter scores'}
+        </Text>
+        <Text style={[text.meta, { color: colors.inkMuted }]}>{subtitle}</Text>
+      </View>
 
-            {tables.map((table) => {
-              const isComplete = complete.includes(table);
-              const isStarted = started.includes(table);
+      {tables.map((table) => {
+        const isComplete = complete.includes(table);
+        const isStarted = started.includes(table);
+
+        return (
+          <View key={table.match_id} style={{ gap: 10 }}>
+            {/* Only when there is more than one. On a single card the heading
+                would be a label for the only thing on screen. */}
+            {table.label ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <Text style={[text.caption, { color: colors.inkMuted, letterSpacing: 0.6 }]}>
+                  {table.label.toUpperCase()}
+                </Text>
+                {/* Said per table rather than only at the bottom: with four cards
+                    open, "one of these is short" is useless without saying which. */}
+                {isStarted && !isComplete ? (
+                  <Text style={[text.pill, { color: pillTones.sub.fg }]}>NEEDS EVERY SEAT</Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            {table.seats.map((seat) => {
+              const key = keyOf(table, seat.player_id);
+              const raw = drafts[key] ?? '';
+              const invalid = raw.trim().length > 0 && parseScore(raw) === null;
 
               return (
-                <View key={table.match_id} style={styles.rows}>
-                  {/* Only when there is more than one. On a single card the
-                      heading would be a label for the only thing on screen. */}
-                  {table.label ? (
-                    <View style={styles.tableHeader}>
-                      <ThemedText type="label" themeColor="textSecondary">
-                        {table.label}
-                      </ThemedText>
-                      {/* Said per table rather than only at the bottom: with four
-                          cards open, "one of these is short" is useless without
-                          saying which. */}
-                      {isStarted && !isComplete ? (
-                        <ThemedText type="label" style={{ color: theme.accentWarmInk }}>
-                          Needs every seat
-                        </ThemedText>
-                      ) : null}
-                    </View>
-                  ) : null}
-
-                  {table.seats.map((seat) => {
-                    const key = keyOf(table, seat.player_id);
-                    const raw = drafts[key] ?? '';
-                    const invalid = raw.trim().length > 0 && parseScore(raw) === null;
-
-                    return (
-                      <View key={key} style={styles.row}>
-                        <ThemedText style={styles.playerName} numberOfLines={1}>
-                          {seat.name ?? 'Member'}
-                        </ThemedText>
-                        <TextInput
-                          value={raw}
-                          onChangeText={(next) =>
-                            setDrafts((current) => ({ ...current, [key]: next }))
-                          }
-                          keyboardType="numbers-and-punctuation"
-                          inputMode="numeric"
-                          placeholder={seat.score === null ? '0' : String(seat.score)}
-                          placeholderTextColor={theme.placeholder}
-                          style={[
-                            styles.input,
-                            {
-                              color: theme.text,
-                              backgroundColor: theme.backgroundElement,
-                              borderColor: invalid ? theme.danger : 'transparent',
-                            },
-                          ]}
-                        />
-                      </View>
-                    );
-                  })}
+                <View key={key} style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                  <Text style={[text.body, { color: colors.ink, flex: 1 }]} numberOfLines={1}>
+                    {seat.name ?? 'Member'}
+                  </Text>
+                  <TextInput
+                    value={raw}
+                    onChangeText={(next) => setDrafts((current) => ({ ...current, [key]: next }))}
+                    keyboardType="numbers-and-punctuation"
+                    inputMode="numeric"
+                    placeholder={seat.score === null ? '0' : String(seat.score)}
+                    placeholderTextColor={colors.placeholder}
+                    style={{
+                      fontFamily: fonts.semibold,
+                      fontVariant: ['tabular-nums'],
+                      width: 96,
+                      height: 44,
+                      paddingHorizontal: 14,
+                      borderRadius: radius.inset,
+                      backgroundColor: colors.bg,
+                      borderWidth: 1,
+                      borderColor: invalid ? colors.danger : colors.track,
+                      textAlign: 'right',
+                      fontSize: 16,
+                      color: colors.ink,
+                    }}
+                  />
                 </View>
               );
             })}
+          </View>
+        );
+      })}
 
-            {error ? (
-              <ThemedText type="small" style={{ color: theme.danger }}>
-                {error}
-              </ThemedText>
-            ) : null}
+      {error ? <Text style={[text.meta, { color: colors.danger }]}>{error}</Text> : null}
 
-            <ThemedText type="small" themeColor="textSecondary">
-              {footnote()}
-            </ThemedText>
+      <Text style={[text.caption, { color: colors.inkMuted }]}>{footnote()}</Text>
 
-            <View style={styles.actions}>
-              <Pressable onPress={close} style={({ pressed }) => pressed && styles.pressed}>
-                <ThemedView type="backgroundElement" style={styles.button}>
-                  <ThemedText type="smallBold" themeColor="textSecondary">
-                    Cancel
-                  </ThemedText>
-                </ThemedView>
-              </Pressable>
-
-              <Pressable
-                onPress={commit}
-                disabled={!canSave || isSaving}
-                style={({ pressed }) => pressed && styles.pressed}>
-                <View
-                  style={[
-                    styles.button,
-                    { backgroundColor: theme.accentButton },
-                    (!canSave || isSaving) && styles.disabled,
-                  ]}>
-                  {isSaving ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <ThemedText type="smallBold" style={styles.saveLabel}>
-                      Save scores
-                    </ThemedText>
-                  )}
-                </View>
-              </Pressable>
-            </View>
-          </ScrollView>
-        </ThemedView>
-      </KeyboardAvoidingView>
-    </Modal>
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+        <Button variant="soft" size="md" label="Cancel" onPress={close} />
+        <GradientButton size="md" label="Save scores" disabled={!canSave} busy={isSaving} onPress={commit} />
+      </View>
+    </Sheet>
   );
 }
-
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  sheet: {
-    width: '100%',
-    maxWidth: MaxContentWidth,
-    borderTopLeftRadius: Spacing.four,
-    borderTopRightRadius: Spacing.four,
-    maxHeight: '85%',
-  },
-  sheetContent: {
-    padding: Spacing.four,
-    gap: Spacing.three,
-  },
-  rows: {
-    gap: Spacing.two,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  playerName: {
-    flex: 1,
-  },
-  input: {
-    fontFamily: DisplayFont,
-    fontVariant: ['tabular-nums'],
-    width: 110,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Radius.small,
-    borderWidth: 1,
-    textAlign: 'right',
-    fontSize: 16,
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  button: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.four,
-    borderRadius: Radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 110,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  saveLabel: {
-    // White on the deep teal fill: 5.4:1, where the near-black it replaced was
-    // correct only while the fill was the pale `accent`.
-    color: '#ffffff',
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-});

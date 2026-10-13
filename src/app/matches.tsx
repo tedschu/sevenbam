@@ -1,27 +1,26 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  RefreshControl,
-  SectionList,
-  StyleSheet,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, RefreshControl, Text, View } from 'react-native';
 
-import { AllKinds, keepKind, MatchKindChips, type MatchKinds } from '@/components/browse-filters';
-import { QuietButton } from '@/components/button';
-import { Icon } from '@/components/icon';
-import { MatchCard } from '@/components/match-card';
+import { AllKinds, keepKind, type MatchKinds } from '@/components/browse-filters';
+import { initialsOf, MatchCard } from '@/components/match-card';
 import { MatchSheet } from '@/components/match-sheet';
-import { Ribbon } from '@/components/ribbon';
 import { ScoreEntrySheet } from '@/components/score-entry-sheet';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, OnAccent, Radius, Spacing } from '@/constants/theme';
+import { Button, GradientButton, IconButton, SegmentedControl } from '@/components/kit/controls';
+import { FilterChip } from '@/components/kit/filters';
+import { Icon } from '@/components/kit/icons';
+import {
+  DashedCard,
+  ScreenHeader,
+  ScreenScaffold,
+  SectionHeader,
+  TitleBlock,
+} from '@/components/kit/layout';
+import { colors, text } from '@/constants/design';
 import { useGlobalView } from '@/hooks/use-global-view';
-import { useTheme } from '@/hooks/use-theme';
+import { useNeedsProfileSetup } from '@/hooks/use-profile-setup';
+import { fetchMyBearings } from '@/lib/profile';
+
 import { fetchSessionAttendance, setAttendance, type Availability } from '@/lib/attendance';
 import {
   addMatchToCalendar,
@@ -38,6 +37,8 @@ import {
   type Match,
 } from '@/lib/matches';
 import { supabase } from '@/lib/supabase';
+
+const AppMark = require('@/assets/images/app-mark.png');
 
 /**
  * Whether giving up a seat is something this member can do on this match.
@@ -61,24 +62,12 @@ function canLeave(match: Match, userId: string, now: number) {
 }
 
 /**
- * Give up a seat. Styled as an outlined pill with a word on it rather than as one
- * of the icon buttons beside it, which is how Browse already draws this — leaving
- * is not a thing to offer behind a glyph somebody has to guess at.
+ * Give up a seat. A labelled button rather than one of the icon buttons beside
+ * it, which is how Browse already draws this — leaving is not a thing to offer
+ * behind a glyph somebody has to guess at.
  */
 function LeaveButton({ busy, onPress }: { busy: boolean; onPress: () => void }) {
-  const theme = useTheme();
-
-  if (busy) return <ActivityIndicator />;
-
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
-      <View style={[styles.leaveButton, { borderColor: theme.rule }]}>
-        <ThemedText type="label" themeColor="textSecondary">
-          Leave
-        </ThemedText>
-      </View>
-    </Pressable>
-  );
+  return <Button variant="plain" label="Leave" busy={busy} onPress={onPress} />;
 }
 
 /**
@@ -131,16 +120,17 @@ function MatchActions({
   const canScore = isHost && match.status !== 'canceled' && match.players.length > 0;
 
   return (
-    <View style={styles.actions}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
       {/* Every match on this screen is one the member is part of, so there is
           always something worth putting in a calendar — until it is past. Keyed on
           the date, not the status: nobody needs a reminder for last Tuesday. */}
       {isPast ? null : (
-        <QuietButton
-          icon={sentToCalendar ? 'calendarCheck' : 'calendarPlus'}
-          label={sentToCalendar ? 'Already sent to calendar — send again' : 'Add to calendar'}
+        <IconButton
+          icon="calendar"
+          accessibilityLabel={
+            sentToCalendar ? 'Already sent to calendar — send again' : 'Add to calendar'
+          }
           onPress={onAddToCalendar}
-          tone={sentToCalendar ? 'done' : 'accent'}
         />
       )}
 
@@ -150,16 +140,17 @@ function MatchActions({
           would leave rescheduling impossible and cancel-and-recreate the only way
           out. */}
       {isHost && !isClosed ? (
-        <QuietButton icon="pencil" label="Edit match" onPress={onEdit} />
+        <IconButton icon="pencil" accessibilityLabel="Edit match" onPress={onEdit} />
       ) : null}
 
+      {/* Outline while the card is still missing, soft once it is recorded — the
+          design's way of saying which of the two is the job to be done. */}
       {canScore ? (
-        <QuietButton
-          icon="scorecard"
-          label={scored ? 'Edit scores' : 'Enter scores'}
-          onPress={onEnterScores}
-          tone="primary"
-        />
+        scored ? (
+          <Button variant="soft" icon="scores" label="Scores" onPress={onEnterScores} />
+        ) : (
+          <Button variant="outline" icon="plus" label="Add scores" onPress={onEnterScores} />
+        )
       ) : null}
 
       {/* A seat at a league table is given up by saying you cannot make it, not by
@@ -199,73 +190,48 @@ function RsvpButtons({
   onGoing: () => void;
   onAway: () => void;
 }) {
-  const theme = useTheme();
-
   if (busy) return <ActivityIndicator />;
 
+  /**
+   * Going is shown as chosen until somebody says otherwise, because it is not
+   * merely the assumption — joining the league was the commitment, and this
+   * control exists to take it back rather than to make it. An unmarked pair would
+   * ask a question that has already been answered.
+   */
+  const answer = going ?? 'in';
+
   return (
-    <View style={styles.rsvpRow}>
-      {(
-        [
-          ['in', 'Going', 'check', onGoing],
-          ['out', "Can't make it", 'close', onAway],
-        ] as const
-      ).map(([value, label, icon, press]) => {
-        const chosen = (going ?? 'in') === value;
-        /**
-         * Going is shown as chosen until somebody says otherwise, because it is
-         * not merely the assumption — joining the league was the commitment, and
-         * this control exists to take it back rather than to make it. An unmarked
-         * pair would ask a question that has already been answered.
-         *
-         * Each state carries its own ink because the two fills differ in weight:
-         * the green is pale and takes the dark ink, the red is strong and takes
-         * the button ink, which inverts by scheme.
-         */
-        const tone =
-          value === 'in'
-            ? { fill: theme.going, ink: OnAccent }
-            : { fill: theme.danger, ink: theme.onAccentButton };
-        // Filled rather than outlined once chosen: the answer is the state here,
-        // and the colour reads before the label does.
-        return (
-          <Pressable
-            key={value}
-            onPress={press}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            style={({ pressed }) => pressed && styles.pressed}>
-            <ThemedView
-              type="background"
-              style={[
-                styles.rsvpChip,
-                {
-                  borderColor: chosen ? tone.fill : theme.rule,
-                  backgroundColor: chosen ? tone.fill : undefined,
-                },
-              ]}>
-              <Icon
-                name={icon}
-                size={14}
-                color={chosen ? tone.ink : theme.textSecondary}
-              />
-              <ThemedText
-                type="label"
-                style={chosen ? { color: tone.ink } : undefined}
-                themeColor={chosen ? undefined : 'textSecondary'}>
-                {label}
-              </ThemedText>
-            </ThemedView>
-          </Pressable>
-        );
-      })}
+    <View style={{ flexDirection: 'row', gap: 8 }}>
+      {/* The one place a chip carries meaning rather than selection, so the two
+          take pill tones instead of the usual ink fill: telling "going" from
+          "not going" by reading the label alone is too slow for a list. */}
+      <FilterChip
+        label="Going"
+        selected={answer === 'in'}
+        selectedTone="info"
+        onPress={onGoing}
+        leading={
+          answer === 'in' ? <Icon name="plus" size={13} color="#0F6B60" strokeWidth={2.6} /> : null
+        }
+      />
+      <FilterChip
+        label="Can't make it"
+        selected={answer === 'out'}
+        selectedTone="sub"
+        onPress={onAway}
+      />
     </View>
   );
 }
 
 export default function MatchesScreen() {
   const globalView = useGlobalView();
+  const needsSetup = useNeedsProfileSetup();
   const [matches, setMatches] = useState<Match[]>([]);
+  const [me, setMe] = useState<{ name: string | null; avatarUrl: string | null }>({
+    name: null,
+    avatarUrl: null,
+  });
   const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -305,6 +271,8 @@ export default function MatchesScreen() {
       }
 
       setUserId(user.id);
+      // Never throws; a header that cannot be personalised is not a failure.
+      setMe(await fetchMyBearings(user.id));
       const mine = await fetchMyMatches(user.id, globalView);
       setMatches(mine);
       setCalendarSent(await loadCalendarSent(user.id));
@@ -388,14 +356,26 @@ export default function MatchesScreen() {
   //
   // One `now` for the whole pass, so a row cannot land in both sections or neither
   // because the clock moved between two filters.
+  /**
+   * All · Single · League, in place of the two independent chips. The same
+   * `MatchKinds` shape underneath, so `keepKind`'s "both off means both on" rule
+   * still holds — the control simply cannot express that state any more.
+   */
+  const kindKey: 'all' | 'single' | 'league' =
+    kinds.single === kinds.league ? 'all' : kinds.single ? 'single' : 'league';
+  const setKindKey = (key: 'all' | 'single' | 'league') =>
+    setKinds(
+      key === 'all'
+        ? AllKinds
+        : key === 'single'
+          ? { single: true, league: false }
+          : { single: false, league: true }
+    );
+
   const ofChosenKind = matches.filter((m) => keepKind(m.league_id, kinds));
   const upcoming = ofChosenKind.filter((m) => !hasFinished(m, loadedAt));
   const past = ofChosenKind.filter((m) => hasFinished(m, loadedAt)).reverse();
 
-  const sections = [
-    { title: 'Upcoming', data: upcoming },
-    { title: 'Past', data: past },
-  ].filter((section) => section.data.length > 0);
 
   // Read from the freshly loaded list, so the sheets show current seats rather
   // than a snapshot taken when the button was tapped.
@@ -422,215 +402,157 @@ export default function MatchesScreen() {
 
   const editingMatch = matches.find((match) => match.id === editingMatchId) ?? null;
 
+  const mixed =
+    matches.some((m) => m.league_id === null) && matches.some((m) => m.league_id !== null);
+
+  const rowFor = (item: Match) => (
+    <MatchCard
+      key={item.id}
+      match={item}
+      userId={userId ?? ''}
+      now={hasFinished(item, loadedAt) ? undefined : loadedAt}
+      // Tapping the card opens its details, and the host can go straight from
+      // there into the same sheet this row's pencil opens.
+      onEdit={() => setEditingMatchId(item.id)}
+      // The same offer the row makes, repeated on this member's own roster row
+      // inside the sheet — and hidden past the date on the same reasoning as the
+      // row's: nobody diaries last Tuesday.
+      calendarSent={calendarSent.has(item.id)}
+      onAddToCalendar={hasFinished(item, loadedAt) ? undefined : () => sendToCalendar(item)}
+      action={
+        <MatchActions
+          match={item}
+          userId={userId ?? ''}
+          sentToCalendar={calendarSent.has(item.id)}
+          leaving={leavingMatchId === item.id}
+          now={loadedAt}
+          going={item.session_id ? (going[item.session_id] ?? null) : null}
+          onRsvp={(status) => rsvp(item, status)}
+          onAddToCalendar={() => sendToCalendar(item)}
+          onEdit={() => setEditingMatchId(item.id)}
+          onEnterScores={() => setScoringMatchId(item.id)}
+          onLeave={() => giveUpSeat(item)}
+        />
+      }
+      // Also in the detail sheet, where somebody who opened a match to check the
+      // date can act on it without closing the sheet first. Guarded by the same
+      // predicate the row uses, because the sheet draws a rule above its footer
+      // and a rule over an empty row is just a line across the screen.
+      detailAction={
+        canLeave(item, userId ?? '', loadedAt) ? (
+          <LeaveButton busy={leavingMatchId === item.id} onPress={() => giveUpSeat(item)} />
+        ) : undefined
+      }
+    />
+  );
+
   return (
-    <ThemedView type="backgroundElement" style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <ThemedText type="label" themeColor="accentInk">
-            {upcoming.length === 0 ? 'Nothing booked' : `${upcoming.length} coming up`}
-          </ThemedText>
-          <ThemedText type="title">My Matches</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-            Upcoming and past games
-          </ThemedText>
-        </View>
+    <>
+      <ScreenScaffold
+        ribbon="compact"
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}>
+        <ScreenHeader
+          logo={AppMark}
+          initials={initialsOf(me.name)}
+          photoUrl={me.avatarUrl}
+          badge={needsSetup}
+          onProfilePress={() => router.push('/profile')}
+        />
+
+        <TitleBlock eyebrow="Your games" title="My matches" />
 
         {/* Only worth offering once there is something of each kind to tell apart. */}
-        {matches.some((m) => m.league_id === null) && matches.some((m) => m.league_id !== null) ? (
-          <View style={styles.kinds}>
-            <MatchKindChips kinds={kinds} onChange={setKinds} />
-          </View>
+        {mixed ? (
+          <SegmentedControl
+            accessibilityLabel="Match type"
+            value={kindKey}
+            onChange={setKindKey}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'single', label: 'Single' },
+              { value: 'league', label: 'League' },
+            ]}
+          />
         ) : null}
+
+        {error ? <Text style={[text.meta, { color: colors.danger }]}>{error}</Text> : null}
 
         {isLoading ? (
-          <ActivityIndicator style={styles.spinner} />
+          <ActivityIndicator style={{ marginTop: 40 }} />
         ) : (
-          <SectionList
-            sections={sections}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <MatchCard
-                match={item}
-                userId={userId ?? ''}
-                // Tapping the card opens its details, and the host can go
-                // straight from there into the same sheet this row's pencil opens.
-                onEdit={() => setEditingMatchId(item.id)}
-                // The same offer the row makes, repeated on this member's own
-                // roster row inside the sheet — and hidden past the date on the
-                // same reasoning as the row's: nobody diaries last Tuesday.
-                calendarSent={calendarSent.has(item.id)}
-                onAddToCalendar={
-                  hasFinished(item, loadedAt) ? undefined : () => sendToCalendar(item)
-                }
-                action={
-                  <MatchActions
-                    match={item}
-                    userId={userId ?? ''}
-                    sentToCalendar={calendarSent.has(item.id)}
-                    leaving={leavingMatchId === item.id}
-                    now={loadedAt}
-                    going={item.session_id ? (going[item.session_id] ?? null) : null}
-                    onRsvp={(status) => rsvp(item, status)}
-                    onAddToCalendar={() => sendToCalendar(item)}
-                    onEdit={() => setEditingMatchId(item.id)}
-                    onEnterScores={() => setScoringMatchId(item.id)}
-                    onLeave={() => giveUpSeat(item)}
-                  />
-                }
-                // Also in the detail sheet, where somebody who opened a match to
-                // check the date can act on it without closing the sheet first.
-                // Guarded by the same predicate the row uses, because the sheet
-                // draws a rule above its footer and a rule over an empty row is
-                // just a line across the screen.
-                detailAction={
-                  canLeave(item, userId ?? '', loadedAt) ? (
-                    <LeaveButton
-                      busy={leavingMatchId === item.id}
-                      onPress={() => giveUpSeat(item)}
-                    />
-                  ) : undefined
-                }
-              />
+          <>
+            <SectionHeader title="Upcoming" count={upcoming.length || undefined} />
+            {upcoming.length > 0 ? (
+              upcoming.map(rowFor)
+            ) : (
+              /* Dashed rather than a card: an empty list should not look full. */
+              <DashedCard>
+                <View style={{ flex: 1 }}>
+                  <Text style={[text.bodyStrong, { color: colors.ink }]}>Nothing booked</Text>
+                  <Text style={[text.meta, { color: colors.inkMuted }]}>
+                    Grab a seat at a table near you.
+                  </Text>
+                </View>
+                <GradientButton size="sm" label="Find a table" onPress={() => router.push('/')} />
+              </DashedCard>
             )}
-            renderSectionHeader={({ section }) => (
-              <ThemedText type="label" themeColor="textSecondary" style={styles.sectionHeader}>
-                {section.title}
-              </ThemedText>
-            )}
-            contentContainerStyle={styles.listContent}
-            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}
-            ListEmptyComponent={
-              <View style={styles.empty}>
-                <Ribbon width={120} height={160} opacity={0.5} />
-                <ThemedText style={styles.centered} themeColor="textSecondary">
-                  {error ?? 'No matches yet. Join one from Browse to get started.'}
-                </ThemedText>
-              </View>
-            }
-            stickySectionHeadersEnabled={false}
-          />
+
+            {past.length > 0 ? (
+              <>
+                <SectionHeader title="Past" count={past.length} />
+                {past.map(rowFor)}
+              </>
+            ) : null}
+          </>
         )}
+      </ScreenScaffold>
 
-        {/* One table, which is the short case of the sheet the league screen opens
-            with a whole meetup in it. Same modal either way, so the two flows
-            cannot drift into two ideas of what a card is. */}
-        {scoringMatch ? (
-          <ScoreEntrySheet
-            key={scoringMatch.id}
-            tables={[
-              {
-                match_id: scoringMatch.id,
-                label: null,
-                seats: scoringMatch.players.map((player) => ({
-                  player_id: player.player_id,
-                  name: player.profile?.name ?? null,
-                  score: player.score,
-                })),
-              },
-            ]}
-            subtitle={`${scoringMatch.location} · ${formatWhen(scoringMatch.date_time)}`}
-            visible
-            onClose={() => setScoringMatchId(null)}
-            save={(entries) =>
-              enterMatchScores(
-                scoringMatch.id,
-                entries.map(({ player_id, score }) => ({ player_id, score }))
-              )
-            }
-            onSaved={async () => {
-              setScoringMatchId(null);
-              await load();
-            }}
-          />
-        ) : null}
-
-        {/* Keyed on the match so the form is rebuilt from that match's details
-            rather than keeping whatever the last one was edited to. */}
-        <MatchSheet
-          key={`edit-${editingMatch?.id ?? 'none'}`}
-          hostId={userId}
-          match={editingMatch}
-          visible={editingMatch !== null}
-          onClose={() => setEditingMatchId(null)}
+      {/* One table, which is the short case of the sheet the league screen opens
+          with a whole meetup in it. Same modal either way, so the two flows
+          cannot drift into two ideas of what a card is. */}
+      {scoringMatch ? (
+        <ScoreEntrySheet
+          key={scoringMatch.id}
+          tables={[
+            {
+              match_id: scoringMatch.id,
+              label: null,
+              seats: scoringMatch.players.map((player) => ({
+                player_id: player.player_id,
+                name: player.profile?.name ?? null,
+                score: player.score,
+              })),
+            },
+          ]}
+          subtitle={`${scoringMatch.location} · ${formatWhen(scoringMatch.date_time)}`}
+          visible
+          onClose={() => setScoringMatchId(null)}
+          save={(entries) =>
+            enterMatchScores(
+              scoringMatch.id,
+              entries.map(({ player_id, score }) => ({ player_id, score }))
+            )
+          }
           onSaved={async () => {
-            setEditingMatchId(null);
+            setScoringMatchId(null);
             await load();
           }}
         />
-      </SafeAreaView>
-    </ThemedView>
+      ) : null}
+
+      {/* Keyed on the match so the form is rebuilt from that match's details
+          rather than keeping whatever the last one was edited to. */}
+      <MatchSheet
+        key={`edit-${editingMatch?.id ?? 'none'}`}
+        hostId={userId}
+        match={editingMatch}
+        visible={editingMatch !== null}
+        onClose={() => setEditingMatchId(null)}
+        onSaved={async () => {
+          setEditingMatchId(null);
+          await load();
+        }}
+      />
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  safeArea: {
-    flex: 1,
-    width: '100%',
-    maxWidth: MaxContentWidth,
-  },
-  header: {
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.four,
-    paddingBottom: Spacing.three,
-  },
-  subtitle: {
-    marginTop: 2,
-  },
-  listContent: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.four,
-    gap: Spacing.three,
-  },
-  sectionHeader: {
-    marginTop: Spacing.two,
-  },
-  kinds: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: Spacing.three,
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  /** Matches the Leave pill on Browse, so the same action looks the same. */
-  leaveButton: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  rsvpRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  rsvpChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.three,
-    minHeight: 34,
-    borderRadius: Radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  centered: {
-    textAlign: 'center',
-  },
-  spinner: {
-    marginTop: Spacing.six,
-  },
-  empty: {
-    marginTop: Spacing.five,
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-});
