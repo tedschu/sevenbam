@@ -33,7 +33,7 @@ export type Profile = {
  * `google` and `apple` mean there is no password to forget: the account was created
  * by one of them and signs in through it. Worth naming on screen, because a member
  * who does not know which kind they are will ask for a reset link for a password that
- * has never existed — a support conversation nobody can win.
+ * has never existed: a support conversation nobody can win.
  */
 export type SignInMethod = 'google' | 'apple' | 'password';
 

@@ -248,7 +248,7 @@ export default function LoginScreen() {
               {isReset ? (
                 <Text style={styles.help}>
                   If you use the Continue with Google or Continue with Apple button,
-                  there is no password on your account to reset — go back and use it
+                  there is no password on your account to reset. Go back and use it
                   instead.
                 </Text>
               ) : null}
