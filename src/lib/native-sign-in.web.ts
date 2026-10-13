@@ -16,7 +16,7 @@ export async function appleSignInAvailable(): Promise<boolean> {
   return false;
 }
 
-export type AppleCredential = { idToken: string; name: string | null };
+export type AppleCredential = { idToken: string; nonce: string; name: string | null };
 
 export async function appleCredential(): Promise<AppleCredential | null> {
   return null;

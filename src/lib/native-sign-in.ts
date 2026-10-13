@@ -5,6 +5,7 @@ import {
   statusCodes,
 } from '@react-native-google-signin/google-signin';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 
 /**
@@ -53,7 +54,7 @@ export function appleSignInAvailable(): Promise<boolean> {
   return AppleAuthentication.isAvailableAsync();
 }
 
-export type AppleCredential = { idToken: string; name: string | null };
+export type AppleCredential = { idToken: string; nonce: string; name: string | null };
 
 /**
  * Asks Apple for an ID token, and the member's name.
@@ -63,15 +64,23 @@ export type AppleCredential = { idToken: string; name: string | null };
  * it on that first pass or it is gone for good, and the member is left nameless on
  * every roster until they type one in.
  *
+ * Carries a nonce so a token lifted from one sign-in cannot be replayed into
+ * another. Apple gets the SHA-256 of it and writes that into the token; Supabase
+ * gets the original, hashes it again and refuses the token if the two differ.
+ *
  * Null when the member cancels.
  */
 export async function appleCredential(): Promise<AppleCredential | null> {
+  const nonce = Crypto.randomUUID();
+  const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, nonce);
+
   try {
     const credential = await AppleAuthentication.signInAsync({
       requestedScopes: [
         AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
         AppleAuthentication.AppleAuthenticationScope.EMAIL,
       ],
+      nonce: hashedNonce,
     });
 
     if (!credential.identityToken) throw new Error('Apple did not return a sign-in token.');
@@ -80,7 +89,7 @@ export async function appleCredential(): Promise<AppleCredential | null> {
       .filter(Boolean)
       .join(' ');
 
-    return { idToken: credential.identityToken, name: name || null };
+    return { idToken: credential.identityToken, nonce, name: name || null };
   } catch (cause) {
     if ((cause as { code?: string }).code === 'ERR_REQUEST_CANCELED') return null;
     throw cause;
