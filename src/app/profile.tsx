@@ -468,6 +468,8 @@ export default function ProfileScreen() {
         <Text style={[text.caption, { color: colors.inkMuted }]}>
           {signInMethod === 'google'
             ? 'You sign in with Google, so this account has no password to change or forget. Ask to have the address changed if you need to.'
+            : signInMethod === 'apple'
+              ? 'You sign in with Apple, so this account has no password to change or forget. If you chose to hide your email, this is the address Apple forwards to you.'
             : signInMethod === 'password'
               ? 'You sign in with this address and a password. Ask to have the address changed if you need to.'
               : 'How you sign in. Ask to have it changed if you need to.'}

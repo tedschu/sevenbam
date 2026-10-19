@@ -41,3 +41,6 @@ example
 # generated native folders
 /ios
 /android
+
+# screenshots of a local web export
+/dist-shots

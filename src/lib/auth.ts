@@ -4,6 +4,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
+import { appleCredential, googleIdToken, nativeGoogleAvailable } from './native-sign-in';
 import { landingHash, recoveryClient, supabase } from './supabase';
 
 /** Where someone goes when nothing on the screen helps them. */
@@ -240,13 +241,24 @@ export function describeAuthError(error: unknown): string {
 /**
  * Sign in with Google.
  *
- * The two platforms take different routes to the same place. On web the
- * browser leaves for Google and comes back with a code in the URL, which the
- * client picks up itself because `detectSessionInUrl` is on. On native there is
- * no page to come back to, so the consent screen opens in an auth session, the
- * deep link is caught here, and the code is exchanged by hand.
+ * Three routes to the same place. On iOS, Google's own account picker hands back
+ * an ID token and Supabase trades it for a session; see `googleIdToken` for why
+ * that beats a browser sheet. On web the browser leaves for Google and comes back
+ * with a code in the URL, which the client picks up itself because
+ * `detectSessionInUrl` is on. Elsewhere on native there is no page to come back
+ * to, so the consent screen opens in an auth session, the deep link is caught
+ * here, and the code is exchanged by hand.
  */
 export async function signInWithGoogle() {
+  if (nativeGoogleAvailable) {
+    const token = await googleIdToken();
+    if (!token) return; // Member closed the picker.
+
+    const { error } = await supabase.auth.signInWithIdToken({ provider: 'google', token });
+    if (error) throw error;
+    return;
+  }
+
   const redirectTo =
     Platform.OS === 'web'
       ? // Back to the page the member started on, not a hardcoded host, so the
@@ -274,4 +286,38 @@ export async function signInWithGoogle() {
 
   const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
   if (exchangeError) throw exchangeError;
+}
+
+/**
+ * Sign in with Apple. iOS only; the button is not drawn anywhere else.
+ *
+ * Offered because App Review asks for it: an app that signs people in with Google
+ * has to offer a login that can hide the member's address, and this is the one
+ * every iPhone already has.
+ *
+ * Supabase builds the profile from the token, which carries no name. Apple hands
+ * the name over separately and only once, so it is written here, and only into a
+ * profile that has none, so signing in again never overwrites one the member
+ * has since changed.
+ */
+export async function signInWithApple() {
+  const credential = await appleCredential();
+  if (!credential) return; // Member cancelled.
+
+  const { data, error } = await supabase.auth.signInWithIdToken({
+    provider: 'apple',
+    token: credential.idToken,
+    nonce: credential.nonce,
+  });
+  if (error) throw error;
+
+  if (credential.name && data.user) {
+    // Best effort. A failure here costs a name the member can type on Profile,
+    // not the sign-in they just finished.
+    await supabase
+      .from('profiles')
+      .update({ name: credential.name })
+      .eq('id', data.user.id)
+      .is('name', null);
+  }
 }
