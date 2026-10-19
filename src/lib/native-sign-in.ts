@@ -27,8 +27,9 @@ export const nativeGoogleAvailable = Platform.OS === 'ios';
  *
  * The point of this over the browser sheet is the prompt in front of it. The sheet
  * has to open the Supabase project's address, and iOS names that address in a
- * system alert nobody can reword: "SEVEN BAM wants to use xiiiswp…supabase.co to
- * sign in". The native picker talks to Google directly, so there is no alert.
+ * system alert nobody can reword: "Seven Bam wants to use xiiiswp…supabase.co to
+ * sign in". Google's kit goes to Google directly, so the alert names google.com
+ * instead, which is what every app with Google sign-in shows.
  *
  * Null when the member backs out, which is not an error worth showing.
  */
