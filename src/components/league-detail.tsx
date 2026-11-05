@@ -59,6 +59,7 @@ import {
   fetchLeagueFootprint,
   fetchLeagueMembers,
   fetchSeasons,
+  renameSeason,
   fetchSessions,
   fetchSessionTables,
   hasUnseenRoleChange,
@@ -67,6 +68,7 @@ import {
   acknowledgeRoleChange,
   setLeagueArchived,
   setLeagueRole,
+  updateLeague,
   updateLeagueVisibility,
   setSessionSeating,
   updateSession,
@@ -174,7 +176,7 @@ export function LeagueDetail({
   league: MyLeague;
   userId: string;
   onBack: () => void;
-  /** Called when membership changes, so the list behind this can refresh. */
+  /** Called when membership or the league's name changes, so the list behind this can refresh. */
   onChanged: () => void;
 }) {
   const theme = useTheme();
@@ -211,6 +213,13 @@ export function LeagueDetail({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /** The league's name while an organizer is renaming it; null when not. */
+  const [leagueNameDraft, setLeagueNameDraft] = useState<string | null>(null);
+  /**
+   * The season being named: a new one (no id) or the one on screen. Null when the
+   * form is closed.
+   */
+  const [seasonDraft, setSeasonDraft] = useState<{ id: string | null; name: string } | null>(null);
   /** Local so the notice goes the instant it is answered. See showRoleNotice. */
   const [roleNoticeDismissed, setRoleNoticeDismissed] = useState(false);
 
@@ -607,16 +616,52 @@ export function LeagueDetail({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const addSeason = async () => {
+  const saveLeagueName = async () => {
+    const name = leagueNameDraft?.trim() ?? '';
+    if (!name) {
+      setError('A league needs a name.');
+      return;
+    }
+    setBusy('league-name');
+    try {
+      await updateLeague(league.id, { name, color: league.color });
+      setLeagueNameDraft(null);
+      setError(null);
+      // The name on this screen comes from the list behind it.
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not rename the league.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * Adds a season or renames the one on screen, depending on the draft. A new one
+   * starts as "Season N", which is what every season used to be called, so saving
+   * without typing anything gives the old behaviour.
+   */
+  const saveSeason = async () => {
+    if (!seasonDraft) return;
+    const name = seasonDraft.name.trim();
+    if (!name) {
+      setError('A season needs a name.');
+      return;
+    }
     setBusy('season');
     try {
-      const name = `Season ${seasons.length + 1}`;
-      const id = await createSeason(league.id, name);
-      setSeasons([{ id, name, status: 'active' }, ...seasons]);
-      setSeasonId(id);
+      if (seasonDraft.id) {
+        await renameSeason(seasonDraft.id, name);
+        setSeasons(seasons.map((season) => (season.id === seasonDraft.id ? { ...season, name } : season)));
+      } else {
+        const id = await createSeason(league.id, name);
+        setSeasons([{ id, name, status: 'active' }, ...seasons]);
+        setSeasonId(id);
+      }
+      setSeasonDraft(null);
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not add a season.');
+      setError(cause instanceof Error ? cause.message : 'Could not save the season.');
     } finally {
       setBusy(null);
     }
@@ -1012,6 +1057,44 @@ export function LeagueDetail({
           small
         />
 
+        {canRun && leagueNameDraft === null ? (
+          <TextLink
+            icon="pencil"
+            label="Rename league"
+            onPress={() => setLeagueNameDraft(league.name)}
+            style={{ alignSelf: 'flex-start' }}
+          />
+        ) : null}
+        {leagueNameDraft !== null ? (
+          <Card gap={12}>
+            <Text style={formFieldLabel}>LEAGUE NAME</Text>
+            <TextInput
+              value={leagueNameDraft}
+              onChangeText={setLeagueNameDraft}
+              maxLength={60}
+              autoFocus
+              placeholderTextColor={designColors.placeholder}
+              style={formFieldInput}
+            />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Button
+                variant="soft"
+                size="md"
+                label="Cancel"
+                onPress={() => setLeagueNameDraft(null)}
+                style={{ flex: 1 }}
+              />
+              <GradientButton
+                size="md"
+                label={busy === 'league-name' ? 'Saving…' : 'Save name'}
+                busy={busy === 'league-name'}
+                onPress={saveLeagueName}
+                style={{ flex: 1 }}
+              />
+            </View>
+          </Card>
+        ) : null}
+
         {/* Members, meetups and the season, as the tile motif — and the only one
             that is pressable is the one that opens a picker. */}
         <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -1109,14 +1192,53 @@ export function LeagueDetail({
               'No season has been set up yet.'
             )}
           </ThemedText>
-          {canRun ? (
+          {canRun && activeSeason && !seasonDraft ? (
+            <TextLink
+              icon="pencil"
+              label="Rename"
+              onPress={() => setSeasonDraft({ id: activeSeason.id, name: activeSeason.name })}
+            />
+          ) : null}
+          {canRun && !seasonDraft ? (
             <TextLink
               icon="plus"
-              label={busy === 'season' ? 'Adding…' : 'New season'}
-              onPress={addSeason}
+              label="New season"
+              onPress={() => setSeasonDraft({ id: null, name: `Season ${seasons.length + 1}` })}
             />
           ) : null}
         </View>
+
+        {seasonDraft ? (
+          <Card gap={12}>
+            <Text style={formFieldLabel}>{seasonDraft.id ? 'SEASON NAME' : 'NEW SEASON'}</Text>
+            <TextInput
+              value={seasonDraft.name}
+              onChangeText={(name) => setSeasonDraft({ ...seasonDraft, name })}
+              maxLength={60}
+              autoFocus
+              selectTextOnFocus
+              placeholder="Fall 2026"
+              placeholderTextColor={designColors.placeholder}
+              style={formFieldInput}
+            />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Button
+                variant="soft"
+                size="md"
+                label="Cancel"
+                onPress={() => setSeasonDraft(null)}
+                style={{ flex: 1 }}
+              />
+              <GradientButton
+                size="md"
+                label={busy === 'season' ? 'Saving…' : seasonDraft.id ? 'Save name' : 'Add season'}
+                busy={busy === 'season'}
+                onPress={saveSeason}
+                style={{ flex: 1 }}
+              />
+            </View>
+          </Card>
+        ) : null}
 
         {/* Only once there is a choice to make. The summary tile above names the
             season either way. */}
