@@ -132,8 +132,16 @@ export function StatTile({
 }) {
   const content = (
     <TileSurface width="100%" height={72} edgeColor={edgeColor} borderRadius={radius.tileLg}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-        <Text style={{ fontFamily: fonts.semibold, fontSize: 22, lineHeight: 26, color: colors.ink }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, maxWidth: '100%', paddingHorizontal: 8 }}>
+        {/* One line: a season named "Fall League 2026" would otherwise wrap in a
+            third of the screen's width. Native shrinks it to fit; web has no such
+            thing and cuts it off with an ellipsis instead. Numbers never reach the
+            limit. */}
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          style={{ flexShrink: 1, minWidth: 0, fontFamily: fonts.semibold, fontSize: 22, lineHeight: 26, color: colors.ink }}
+        >
           {value}
         </Text>
         {onPress ? <Icon name="chevronDown" size={14} color={colors.inkMuted} strokeWidth={2.4} /> : null}

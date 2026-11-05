@@ -428,6 +428,15 @@ export async function createSeason(leagueId: string, name: string): Promise<stri
   return data.id;
 }
 
+export async function renameSeason(seasonId: string, name: string) {
+  const { error } = await supabase
+    .from('seasons')
+    .update({ name: name.trim() })
+    .eq('id', seasonId);
+
+  if (error) throw error;
+}
+
 /**
  * The meetups in a season, each carrying how many tables it has been drawn into.
  * The count comes from the matches pointing back at the session, so it cannot
